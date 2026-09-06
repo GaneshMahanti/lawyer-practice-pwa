@@ -1,0 +1,368 @@
+/* ==============================================================================
+   VakilDesk — Design System Tokens & Mobile-First Practice Stylesheet
+   Designed for Solo Indian Advocates: Calm, Authoritative, High-Legibility
+   ============================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Noto+Sans+Telugu:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Color Tokens */
+  --bg-app: #090d16;
+  --bg-surface: #131d31;
+  --bg-surface-elevated: #1a2742;
+  --bg-surface-active: #233559;
+  --border-subtle: #243556;
+  --border-strong: #3b5280;
+
+  /* Typography Colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #090d16;
+
+  /* Legal Accents & Status */
+  --accent-gold: #f59e0b;
+  --accent-gold-hover: #d97706;
+  --accent-navy: #3b82f6;
+  --status-success: #10b981;
+  --status-warning: #f59e0b;
+  --status-danger: #ef4444;
+  --status-info: #0ea5e9;
+
+  /* Geometry & Layout */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* Touch & Spacing */
+  --min-touch-target: 44px;
+  --nav-height: 64px;
+  --header-height: 60px;
+  --max-content-width: 480px;
+
+  /* Typography Stack */
+  --font-family: 'Inter', 'Noto Sans Devanagari', 'Noto Sans Telugu', system-ui, -apple-system, sans-serif;
+}
+
+/* Reset & Base */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  touch-action: manipulation;
+}
+
+/* Focus States for Accessibility */
+:focus-visible {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: 2px;
+}
+
+/* Mobile App Frame */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  background-color: var(--bg-app);
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  padding: 16px;
+  padding-top: calc(var(--header-height) + 16px);
+  padding-bottom: calc(var(--nav-height) + 24px);
+  overflow-y: auto;
+}
+
+/* Top App Header */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  height: var(--header-height);
+  background-color: rgba(19, 29, 49, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 100;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.header-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Language Selector Pill */
+.lang-selector {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+/* Persistent Bottom Navigation */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-width: var(--max-content-width);
+  margin: 0 auto;
+  height: var(--nav-height);
+  background-color: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  z-index: 100;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 100%;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  gap: 4px;
+  transition: color 0.15s ease;
+  min-width: var(--min-touch-target);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nav-item.active {
+  color: var(--accent-gold);
+}
+
+.nav-item svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Surface Cards */
+.card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.card-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: none; /* Avoid all-caps */
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Status Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.badge-synced {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-syncing {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-offline {
+  background-color: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.4);
+}
+
+.badge-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Quick Action Buttons Grid */
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: var(--min-touch-target);
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.action-btn:hover {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--border-strong);
+}
+
+.action-btn-primary {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--accent-gold);
+}
+
+.action-icon {
+  color: var(--accent-gold);
+  flex-shrink: 0;
+}
+
+/* Empty States */
+.empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+/* Form Controls */
+.input-field {
+  width: 100%;
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  min-height: var(--min-touch-target);
+  margin-bottom: 12px;
+}
+
+.input-field:focus {
+  border-color: var(--accent-gold);
+}
+
+/* Legal Disclaimer Box */
+.disclaimer-box {
+  background-color: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-gold);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 16px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.disclaimer-title {
+  font-weight: 600;
+  color: var(--accent-gold);
+  margin-bottom: 2px;
+}
+
+/* PWA Install Banner */
+.install-banner {
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--accent-gold);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.install-btn {
+  background-color: var(--accent-gold);
+  color: var(--text-inverse);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  min-height: 36px;
+}

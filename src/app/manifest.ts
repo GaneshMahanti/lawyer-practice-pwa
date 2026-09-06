@@ -1,0 +1,35 @@
+import type { MetadataRoute } from 'next';
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: 'VakilDesk — Legal Practice Management',
+    short_name: 'VakilDesk',
+    description: 'Mobile-first practice management for advocates in India.',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#0f172a',
+    theme_color: '#1e293b',
+    orientation: 'portrait',
+    scope: '/',
+    icons: [
+      {
+        src: '/icons/icon-192.svg',
+        sizes: '192x192',
+        type: 'image/svg+xml',
+        purpose: 'any',
+      },
+      {
+        src: '/icons/icon-512.svg',
+        sizes: '512x512',
+        type: 'image/svg+xml',
+        purpose: 'any',
+      },
+      {
+        src: '/icons/icon-maskable.svg',
+        sizes: '512x512',
+        type: 'image/svg+xml',
+        purpose: 'maskable',
+      },
+    ],
+  };
+}
