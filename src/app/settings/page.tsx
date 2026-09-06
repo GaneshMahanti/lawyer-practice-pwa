@@ -2,50 +2,124 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '@/lib/i18n/context';
-import { SupportedLanguage } from '@/lib/types/database';
+import { useTheme } from '@/lib/theme/context';
+import type { SupportedLanguage } from '@/lib/types/database';
 
 export default function SettingsPage() {
   const { language, setLanguage, t } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
+
   const [barCouncilNo, setBarCouncilNo] = useState('');
   const [advocateName, setAdvocateName] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
   useEffect(() => {
     try {
-      const savedBar = localStorage.getItem('vakildesk_bar_no');
-      const savedName = localStorage.getItem('vakildesk_advocate_name');
-      if (savedBar) setBarCouncilNo(savedBar);
-      if (savedName) setAdvocateName(savedName);
-    } catch {
-      // Storage access unavailable
-    }
+      let savedBar = '';
+      let savedName = '';
+      try {
+        savedBar = localStorage.getItem('vakildesk_bar_no') || '';
+        savedName = localStorage.getItem('vakildesk_advocate_name') || '';
+      } catch {}
+
+      if (!savedName && typeof document !== 'undefined') {
+        const match = document.cookie.match(/(?:^|;\s*)vakildesk_advocate_name=([^;]*)/);
+        if (match) savedName = decodeURIComponent(match[1]);
+      }
+      if (!savedBar && typeof document !== 'undefined') {
+        const match = document.cookie.match(/(?:^|;\s*)vakildesk_bar_no=([^;]*)/);
+        if (match) savedBar = decodeURIComponent(match[1]);
+      }
+
+      setBarCouncilNo(savedBar);
+      setAdvocateName(savedName);
+    } catch {}
   }, []);
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = (e?: React.FormEvent | React.MouseEvent) => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
     setSaveStatus('saving');
+    const trimmedName = advocateName.trim();
+    const trimmedBar = barCouncilNo.trim();
+
     try {
-      localStorage.setItem('vakildesk_bar_no', barCouncilNo);
-      localStorage.setItem('vakildesk_advocate_name', advocateName);
-      setTimeout(() => setSaveStatus('saved'), 400);
+      try {
+        localStorage.setItem('vakildesk_bar_no', trimmedBar);
+        localStorage.setItem('vakildesk_advocate_name', trimmedName);
+      } catch {}
+
+      if (typeof document !== 'undefined') {
+        document.cookie = `vakildesk_advocate_name=${encodeURIComponent(trimmedName)}; path=/; max-age=31536000; SameSite=Lax`;
+        document.cookie = `vakildesk_bar_no=${encodeURIComponent(trimmedBar)}; path=/; max-age=31536000; SameSite=Lax`;
+      }
+
+      // Notify header and any other component immediately
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('vakildesk-profile-update', { detail: { name: trimmedName } }));
+      }
+
+      setTimeout(() => setSaveStatus('saved'), 200);
       setTimeout(() => setSaveStatus('idle'), 2500);
     } catch {
       setSaveStatus('idle');
     }
   };
 
+  const isLight = theme === 'light';
+
   return (
     <div>
       <div className="section-label">{t('settings')}</div>
 
+      {/* ── Appearance ── */}
       <div className="card">
-        <div className="card-title">
-          <span>{t('language')}</span>
+        <div className="card-title">Appearance</div>
+
+        {/* Theme toggle row - Entire row is clickable for easy touch interaction */}
+        <div
+          className="theme-toggle-row"
+          onClick={toggleTheme}
+          style={{ cursor: 'pointer', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleTheme();
+            }
+          }}
+          aria-label="Toggle dark and light theme"
+        >
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+              {isLight ? '☀️ Light mode' : '🌙 Dark mode'}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              {isLight
+                ? 'Navy header, crisp white background'
+                : 'OLED dark background, light grey text'}
+            </div>
+          </div>
+          <div className="toggle-switch" style={{ pointerEvents: 'none' }}>
+            <input
+              type="checkbox"
+              checked={isLight}
+              readOnly
+              aria-hidden="true"
+            />
+            <span className="toggle-slider" />
+          </div>
         </div>
+      </div>
+
+      {/* ── Language ── */}
+      <div className="card">
+        <div className="card-title">{t('language')}</div>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem', marginBottom: 12 }}>
           Choose your preferred interface language.
         </p>
-
         <div style={{ display: 'flex', gap: 8 }}>
           {(['en', 'hi', 'te'] as SupportedLanguage[]).map((lang) => (
             <button
@@ -61,26 +135,21 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── Advocate Profile ── */}
       <div className="card">
-        <div className="card-title">
-          <span>{t('lawyerProfile')}</span>
-        </div>
+        <div className="card-title">{t('lawyerProfile')}</div>
 
-        <form onSubmit={handleSave}>
-          <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
-            Advocate Name
-          </label>
+        <form onSubmit={handleSave} action="#" method="get">
+          <label className="input-label">Advocate Name</label>
           <input
             type="text"
             className="input-field"
-            placeholder="e.g. Adv. R. K. Sharma"
+            placeholder="e.g. R. K. Sharma"
             value={advocateName}
             onChange={(e) => setAdvocateName(e.target.value)}
           />
 
-          <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
-            {t('barCouncilNumber')}
-          </label>
+          <label className="input-label">{t('barCouncilNumber')}</label>
           <input
             type="text"
             className="input-field"
@@ -89,19 +158,18 @@ export default function SettingsPage() {
             onChange={(e) => setBarCouncilNo(e.target.value)}
           />
 
-          <label style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
-            {t('courtTimezone')}
-          </label>
+          <label className="input-label">{t('courtTimezone')}</label>
           <input
             type="text"
             className="input-field"
             value="Asia/Kolkata (IST, UTC+05:30)"
             disabled
-            style={{ opacity: 0.7, cursor: 'not-allowed' }}
+            style={{ opacity: 0.6, cursor: 'not-allowed' }}
           />
 
           <button
-            type="submit"
+            type="button"
+            onClick={handleSave}
             className="action-btn action-btn-primary"
             style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
             disabled={saveStatus === 'saving'}
@@ -109,8 +177,8 @@ export default function SettingsPage() {
             {saveStatus === 'saving'
               ? 'Saving…'
               : saveStatus === 'saved'
-              ? 'Profile details saved'
-              : 'Save profile details'}
+              ? '✓ Profile saved'
+              : 'Save profile'}
           </button>
         </form>
       </div>

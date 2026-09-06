@@ -1,7 +1,26 @@
+const os = require('os');
+
+function getDevOrigins() {
+  const origins = new Set(['localhost', '127.0.0.1', '0.0.0.0', '192.168.0.114', '192.168.29.20']);
+  try {
+    const ifaces = os.networkInterfaces();
+    for (const addrs of Object.values(ifaces)) {
+      if (!addrs) continue;
+      for (const addr of addrs) {
+        if (addr.family === 'IPv4' || addr.family === 4) {
+          origins.add(addr.address);
+        }
+      }
+    }
+  } catch {}
+  return Array.from(origins);
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  allowedDevOrigins: getDevOrigins(),
   async headers() {
     return [
       {

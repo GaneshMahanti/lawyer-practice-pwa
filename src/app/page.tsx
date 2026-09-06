@@ -1,25 +1,72 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/context';
+import { CalendarView } from '@/components/CalendarView';
 import { PWAInstaller } from '@/components/PWAInstaller';
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getFormattedDate(): string {
+  const now = new Date();
+  return now.toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+const STATS = [
+  { label: 'TODAY', value: 0, highlight: true },
+  { label: 'TOMORROW', value: 0 },
+  { label: 'RUNNING', value: 0 },
+  { label: 'AWAITED', value: 0 },
+  { label: 'DECIDED', value: 0 },
+  { label: 'ABANDONED', value: 0 },
+];
 
 export default function HomePage() {
   const { t } = useLanguage();
+  const greeting = useMemo(getGreeting, []);
+  const dateString = useMemo(getFormattedDate, []);
 
   return (
     <div>
       <PWAInstaller />
 
-      {/* Quick Actions Bar */}
-      <div className="section-label">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-        </svg>
-        Quick Actions
+      {/* Greeting */}
+      <div className="greeting-section">
+        <div className="greeting-date">{dateString}</div>
+        <div className="greeting-text">{greeting}</div>
+        <div className="greeting-sub">0 hearings listed today</div>
       </div>
 
+      {/* Hearing Stats Card */}
+      <div className="stats-card">
+        <div className="stats-grid">
+          {STATS.map((s) => (
+            <div key={s.label} className="stat-cell">
+              <span className={`stat-value ${s.highlight ? 'highlight' : ''}`}>
+                {s.value}
+              </span>
+              <span className="stat-label">{s.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Calendar (Week / Month toggle) */}
+      <CalendarView />
+
+      {/* Quick Actions */}
+      <div className="section-label" style={{ marginTop: 4 }}>Quick Actions</div>
       <div className="quick-actions-grid">
         <Link href="/clients?action=new" className="action-btn action-btn-primary">
           <svg className="action-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,7 +100,7 @@ export default function HomePage() {
         </Link>
 
         <Link href="/billing?action=create_link" className="action-btn">
-          <svg className="action-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="action-icon-gold" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect width="20" height="14" x="2" y="5" rx="2" />
             <line x1="2" x2="22" y1="10" y2="10" />
           </svg>
@@ -61,73 +108,25 @@ export default function HomePage() {
         </Link>
       </div>
 
-      {/* Today's Schedule Card */}
-      <div className="card">
-        <div className="card-title">
-          <span>{t('todaySchedule')}</span>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Asia/Kolkata
-          </span>
-        </div>
-        <div className="empty-state">
-          <svg
-            width="32"
-            height="32"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="var(--border-strong)"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ margin: '0 auto 8px', display: 'block' }}
-          >
-            <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
-            <line x1="16" x2="16" y1="2" y2="6" />
-            <line x1="8" x2="8" y1="2" y2="6" />
-            <line x1="3" x2="21" y1="10" y2="10" />
-          </svg>
-          {t('noHearingsToday')}
-        </div>
-      </div>
-
-      {/* Upcoming Hearings Card */}
-      <div className="card">
-        <div className="card-title">
-          <span>{t('upcomingHearings')}</span>
-          <span className="badge badge-synced">Next 7 Days</span>
-        </div>
-        <div className="empty-state">
-          {t('noUpcomingHearings')}
-        </div>
-      </div>
-
-      {/* Outstanding Fees / Invoices Card */}
+      {/* Pending / Outstanding Fees */}
       <div className="card">
         <div className="card-title">
           <span>{t('outstandingFees')}</span>
-          <Link href="/billing" style={{ fontSize: '0.78rem', color: 'var(--accent-gold)', textDecoration: 'none' }}>
-            View all →
-          </Link>
+          <Link href="/billing" className="card-link">View all →</Link>
         </div>
-        <div className="empty-state">
-          {t('noPendingFees')}
-        </div>
+        <div className="empty-state">{t('noPendingFees')}</div>
       </div>
 
-      {/* Recent Diary Notes Card */}
+      {/* Recent Diary Notes */}
       <div className="card">
         <div className="card-title">
           <span>{t('recentNotes')}</span>
-          <Link href="/diary" style={{ fontSize: '0.78rem', color: 'var(--accent-gold)', textDecoration: 'none' }}>
-            Open Diary →
-          </Link>
+          <Link href="/diary" className="card-link">Open Diary →</Link>
         </div>
-        <div className="empty-state">
-          {t('noRecentNotes')}
-        </div>
+        <div className="empty-state">{t('noRecentNotes')}</div>
       </div>
 
-      {/* Mandatory Legal Disclaimer & Verification Boundary */}
+      {/* Legal Disclaimer */}
       <div className="disclaimer-box" role="note">
         <div className="disclaimer-title">{t('disclaimerTitle')}</div>
         <div>{t('disclaimerText')}</div>
