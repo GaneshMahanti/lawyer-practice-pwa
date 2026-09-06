@@ -62,11 +62,15 @@ let secretLeakFound = false;
 for (const dir of clientDirs) {
   const files = scanFiles(dir);
   for (const file of files) {
+    // Skip server-only Route Handlers (app/api/**/route.ts) which run strictly on the server
+    if (file.includes(path.join('app', 'api')) || file.endsWith('route.ts') || file.includes('test-')) {
+      continue;
+    }
     const content = fs.readFileSync(file, 'utf8');
     for (const token of secretTokens) {
-      // Check if raw secret variable is accessed in client components (excluding NEXT_PUBLIC)
-      if (content.includes(`process.env.${token}`) || (content.includes(token) && !token.startsWith('NEXT_PUBLIC_') && !file.includes('route.ts') && !file.includes('test-'))) {
-        console.error(`Leak detected in ${file}: references ${token}`);
+      // Check if raw secret variable is accessed or hardcoded in client components
+      if (content.includes(`process.env.${token}`) || (content.includes(token) && !token.startsWith('NEXT_PUBLIC_'))) {
+        console.error(`Leak detected in client file ${file}: references ${token}`);
         secretLeakFound = true;
       }
     }

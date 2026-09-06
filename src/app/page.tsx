@@ -99,12 +99,16 @@ export default function HomePage() {
           <span>{t('recordNote')}</span>
         </Link>
 
-        <Link href="/billing?action=create_link" className="action-btn">
-          <svg className="action-icon-gold" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect width="20" height="14" x="2" y="5" rx="2" />
-            <line x1="2" x2="22" y1="10" y2="10" />
+        <Link href="/documents" className="action-btn">
+          <svg className="action-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m5 8 6 6" />
+            <path d="m4 14 6-6 2-3" />
+            <path d="M2 5h12" />
+            <path d="M7 2h1" />
+            <path d="m22 22-5-10-5 10" />
+            <path d="M14 18h6" />
           </svg>
-          <span>{t('createPaymentLink')}</span>
+          <span>Telugu Translation</span>
         </Link>
       </div>
 

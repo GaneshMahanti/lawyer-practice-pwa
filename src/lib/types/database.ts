@@ -54,20 +54,45 @@ export interface Profile {
   updated_at: string;
 }
 
+export type ClientStatus = 'pending' | 'active';
+
 export interface Client {
   id: string;
   owner_id: string;
   name: string;
-  phone: string;
+  phone: string; // Phone No. 1
+  phone_2: string | null; // Secondary Phone No.
   email: string | null;
   case_reference: string | null;
   notes: string | null;
   whatsapp_opt_in: boolean;
   whatsapp_opt_in_at: string | null;
   preferred_language: SupportedLanguage;
+  status: ClientStatus;
+  registration_token: string | null;
+  token_expires_at: string | null;
+  aadhaar_last4: string | null; // Masked only: e.g. "1234"
+  current_address: string | null;
+  permanent_address: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type FeeType = 'consultation' | 'legal_notice' | 'case_fee';
+
+export interface ClientFee {
+  id: string;
+  client_id: string;
+  owner_id: string;
+  fee_type: FeeType;
+  amount: number;
+  razorpay_link_id: string | null;
+  razorpay_link_url: string | null;
+  payment_status: 'unpaid' | 'paid' | 'cancelled';
+  created_at: string;
+}
+
+export type CaseCategory = 'Civil' | 'Crime' | 'Family' | 'NIA' | string;
 
 export interface Matter {
   id: string;
@@ -78,6 +103,11 @@ export interface Matter {
   court_name: string;
   matter_type: string;
   case_type: string;
+  category?: CaseCategory;
+  state?: string;
+  district?: string;
+  court_complex?: string;
+  case_year?: number | string;
   filing_number: string | null;
   cnr_number: string | null;
   status: MatterStatus;
@@ -138,12 +168,18 @@ export interface Payment {
   created_at: string;
 }
 
+export type NoteEntryType = 'voice' | 'text';
+
 export interface DiaryEntry {
   id: string;
   owner_id: string;
   client_id: string | null;
   matter_id: string | null;
+  entry_type: NoteEntryType;
+  title: string | null;
+  content: string | null; // Note text or Whisper transcript
   audio_storage_path: string | null;
+  audio_url?: string | null;
   transcript: string | null;
   transcription_status: TranscriptionStatus;
   transcription_model: string | null;
@@ -164,6 +200,9 @@ export interface DocumentRecord {
   file_storage_path: string;
   form_data_json: Record<string, unknown>;
   statutory_basis: string | null;
+  image_url?: string | null;
+  original_text?: string | null; // e.g. Telugu OCR text
+  translated_text?: string | null; // e.g. English translation
   generated_at: string;
   created_at: string;
 }
