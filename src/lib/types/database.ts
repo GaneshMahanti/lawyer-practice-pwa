@@ -46,10 +46,15 @@ export interface Profile {
   user_id: string;
   display_name: string;
   bar_council_number: string | null;
+  state_bar_council: string | null;
+  chamber_address: string | null;
+  city: string | null;
+  practice_areas: string[];
   office_address: string | null;
   phone: string | null;
   preferred_language: SupportedLanguage;
   timezone: string;
+  onboarding_completed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -181,6 +186,9 @@ export interface DiaryEntry {
   audio_storage_path: string | null;
   audio_url?: string | null;
   transcript: string | null;
+  original_transcript?: string | null;
+  edited_transcript?: string | null;
+  transcript_edited_at?: string | null;
   transcription_status: TranscriptionStatus;
   transcription_model: string | null;
   language: string | null;
@@ -248,4 +256,51 @@ export interface AuditLog {
   outcome: 'success' | 'failure';
   ip_hash: string | null;
   created_at: string;
+}
+
+export type PortalInviteStatus =
+  | 'pending'
+  | 'submitted'
+  | 'payment_pending'
+  | 'completed'
+  | 'revoked'
+  | 'expired';
+
+export interface PortalInvite {
+  id: string;
+  owner_id: string;
+  token_hash: string;
+  status: PortalInviteStatus;
+  advocate_name: string;
+  client_name: string | null;
+  client_id: string | null;
+  fee_snapshot: Array<{ fee_type: string; amount: number; razorpay_link_url: string | null }>;
+  expires_at: string;
+  revoked_at: string | null;
+  submitted_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface PortalSubmission {
+  id: string;
+  invite_id: string;
+  owner_id: string;
+  name: string;
+  phone_1: string;
+  phone_2: string | null;
+  aadhaar_last4: string;
+  current_address: string;
+  permanent_address: string;
+  submitted_at: string;
+}
+
+export interface ApprovedUser {
+  id: string;
+  email: string;
+  role: 'developer' | 'lawyer';
+  name: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }

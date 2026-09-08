@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid invite ID' }, { status: 400 });
     }
     if (!name || typeof name !== 'string' || !name.trim()) {
-      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Full legal name is required' }, { status: 400 });
     }
     if (!phone_1 || typeof phone_1 !== 'string' || !/^\d{10}$/.test(phone_1.replace(/\s|-/g, ''))) {
       return NextResponse.json({ error: 'Valid 10-digit primary phone is required' }, { status: 400 });
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     try {
       supabase = createServiceClient();
     } catch {
-      return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 });
+      return NextResponse.json({ error: 'Database service configuration missing' }, { status: 503 });
     }
 
     // 2. Validate token hash against portal_invites
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     const db = supabase as any;
     const { data: invite, error: inviteError } = await db
       .from('portal_invites')
-      .select('id, owner_id, expires_at, revoked_at, used_at')
+      .select('id, owner_id, fee_snapshot, status, expires_at, revoked_at')
       .eq('id', inviteId)
       .eq('token_hash', tokenHash)
       .single();
@@ -62,15 +62,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid invite link' }, { status: 403 });
     }
 
-    if (invite.revoked_at) {
+    if (invite.status === 'revoked' || invite.revoked_at) {
       return NextResponse.json({ error: 'This registration link has been revoked' }, { status: 403 });
     }
 
-    if (invite.used_at) {
-      return NextResponse.json({ error: 'This registration link has already been used' }, { status: 409 });
+    if (invite.status === 'completed') {
+      return NextResponse.json({ error: 'This registration and payment workflow is already completed' }, { status: 409 });
     }
 
-    if (new Date(invite.expires_at) < new Date()) {
+    if (invite.status === 'expired' || new Date(invite.expires_at) < new Date()) {
       return NextResponse.json({ error: 'This registration link has expired' }, { status: 410 });
     }
 
@@ -96,13 +96,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to record submission' }, { status: 500 });
     }
 
-    // 4. Mark invite as used atomically
+    // 4. Update invite status according to fee workflow:
+    // If fees are attached, advance to 'payment_pending' so client can view & complete payment.
+    // If no fees are attached, mark as 'completed'.
+    const feeSnapshot = invite.fee_snapshot || [];
+    const hasFeesToPay = Array.isArray(feeSnapshot) && feeSnapshot.some((f: any) => f.amount > 0);
+    const nextStatus = hasFeesToPay ? 'payment_pending' : 'completed';
+    const nowIso = new Date().toISOString();
+
     await db
       .from('portal_invites')
-      .update({ used_at: new Date().toISOString() })
+      .update({
+        status: nextStatus,
+        submitted_at: nowIso,
+        completed_at: nextStatus === 'completed' ? nowIso : null,
+      })
       .eq('id', invite.id);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, status: nextStatus });
   } catch (err) {
     console.error('Portal submit unexpected exception:', err);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

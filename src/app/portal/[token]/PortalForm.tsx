@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { Lock, CheckCircle, ShieldCheck, CreditCard, ArrowRight } from 'lucide-react';
+import type { PortalInviteStatus } from '@/lib/types/database';
 
 interface Fee { fee_type: string; amount: number; razorpay_link_url: string | null; }
 
@@ -9,18 +11,19 @@ interface Props {
   rawToken: string;
   advocateName: string;
   fees: Fee[];
+  initialStatus?: PortalInviteStatus;
 }
 
 function feeLabel(type: string) {
-  const labels: Record<string, string> = { consultation: 'Consultation Fee', legal_notice: 'Legal Notice Fee', case_fee: 'Case Fee' };
-  return labels[type] || type;
+  const labels: Record<string, string> = {
+    consultation: 'Consultation Fee',
+    legal_notice: 'Legal Notice Fee',
+    case_fee: 'Case Retainer Fee',
+  };
+  return labels[type] || type.replace('_', ' ');
 }
 
-function LockIcon() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
-}
-
-export default function PortalForm({ inviteId, rawToken, advocateName, fees }: Props) {
+export default function PortalForm({ inviteId, rawToken, advocateName, fees, initialStatus = 'pending' }: Props) {
   const [fullName, setFullName] = useState('');
   const [phone1, setPhone1] = useState('');
   const [phone2, setPhone2] = useState('');
@@ -30,7 +33,7 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
   const [sameAsCurrent, setSameAsCurrent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [success, setSuccess] = useState(initialStatus === 'payment_pending' || initialStatus === 'submitted');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const totalFee = fees.reduce((s, f) => s + f.amount, 0);
@@ -70,31 +73,117 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
         }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Submission failed.'); return; }
+      if (!res.ok) {
+        setError(data.error || 'Submission failed.');
+        return;
+      }
       setSuccess(true);
-    } catch { setError('Network error. Please check your connection and try again.'); }
-    finally { setSubmitting(false); }
+    } catch {
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (success) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg-app)', textAlign: 'center' }}>
-        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--status-success)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 20 }} aria-hidden="true">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <h1 style={{ color: 'var(--text-primary)', fontSize: '1.3rem', fontWeight: 700, margin: '0 0 10px' }}>Registration Submitted</h1>
-        <p style={{ color: 'var(--text-secondary)', maxWidth: 340, lineHeight: 1.5, fontSize: '0.92rem' }}>
-          Thank you. Your KYC information has been submitted to <strong>{advocateName}</strong>. They will contact you shortly.
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px 16px',
+        background: 'var(--bg-app)',
+        textAlign: 'center',
+      }}>
+        <div style={{
+          width: 56,
+          height: 56,
+          borderRadius: 14,
+          background: 'rgba(34,197,94,0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--status-success)',
+          marginBottom: 16,
+        }}>
+          <CheckCircle size={32} />
+        </div>
+        <h1 style={{ color: 'var(--text-primary)', fontSize: '1.3rem', fontWeight: 700, margin: '0 0 8px' }}>
+          Registration Submitted
+        </h1>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: 360, lineHeight: 1.5, fontSize: '0.9rem', margin: '0 auto 20px' }}>
+          Your KYC details have been verified and submitted to <strong>{advocateName}</strong>.
         </p>
+
         {fees.length > 0 && (
-          <div style={{ marginTop: 20, padding: '14px 20px', background: 'var(--bg-card)', borderRadius: 12, border: '1px solid var(--border-subtle)', maxWidth: 340, width: '100%' }}>
-            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 10 }}>Fee Payment Links</div>
-            {fees.map((f) => f.razorpay_link_url ? (
-              <a key={f.fee_type} href={f.razorpay_link_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'block', padding: '10px 14px', borderRadius: 8, background: 'var(--accent-primary)', color: '#fff', textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem', marginBottom: 8 }}>
-                Pay {feeLabel(f.fee_type)} — ₹{f.amount.toLocaleString('en-IN')}
-              </a>
-            ) : null)}
+          <div style={{
+            maxWidth: 420,
+            width: '100%',
+            background: 'var(--bg-card)',
+            borderRadius: 12,
+            border: '1px solid var(--border-subtle)',
+            padding: '20px 18px',
+            textAlign: 'left',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
+              <CreditCard size={18} color="var(--accent-primary)" />
+              <span>Prescribed Legal Fees</span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {fees.map((f) => (
+                <div key={f.fee_type} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 12px',
+                  background: 'var(--bg-surface-elevated)',
+                  borderRadius: 8,
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {feeLabel(f.fee_type)}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                      ₹{f.amount.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  {f.razorpay_link_url ? (
+                    <a
+                      href={f.razorpay_link_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="action-btn action-btn-primary"
+                      style={{ fontSize: '0.82rem', padding: '6px 14px', textDecoration: 'none' }}
+                    >
+                      Pay Now →
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Direct Payment
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {totalFee > 0 && (
+              <div style={{
+                borderTop: '1px solid var(--border-subtle)',
+                marginTop: 14,
+                paddingTop: 12,
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '0.95rem',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+              }}>
+                <span>Total Amount:</span>
+                <span style={{ color: 'var(--accent-primary)' }}>₹{totalFee.toLocaleString('en-IN')}</span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -110,35 +199,34 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
   );
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-app)', padding: '24px 0 80px' }}>
-      <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 16px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-app)', padding: '24px 16px 48px' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto' }}>
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 24, paddingTop: 16 }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 4 }}>Invited by</div>
-          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{advocateName}</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: 4 }}>Client Registration &amp; KYC</div>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{
+            width: 48,
+            height: 48,
+            borderRadius: 12,
+            background: 'linear-gradient(135deg, var(--accent-gold, #c8a03c), #9b722b)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 12px',
+            color: '#fff',
+          }}>
+            <ShieldCheck size={26} />
+          </div>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>
+            Client Onboarding Portal
+          </h1>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+            Legal Representation by <strong>{advocateName}</strong>
+          </p>
         </div>
 
-        {/* Fee Summary */}
-        {fees.length > 0 && (
-          <div className="card" style={{ marginBottom: 20 }}>
-            <div className="card-title" style={{ marginBottom: 10 }}><span>Fee Summary</span></div>
-            {fees.map((f) => (
-              <div key={f.fee_type} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.88rem' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{feeLabel(f.fee_type)}</span>
-                <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>₹{f.amount.toLocaleString('en-IN')}</span>
-              </div>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, fontSize: '0.95rem', fontWeight: 700 }}>
-              <span style={{ color: 'var(--text-primary)' }}>Total</span>
-              <span style={{ color: 'var(--accent-gold)' }}>₹{totalFee.toLocaleString('en-IN')}</span>
-            </div>
-          </div>
-        )}
-
-        {/* KYC Form */}
+        {/* Card */}
         <div className="card">
-          <div className="card-title" style={{ marginBottom: 16 }}><span>Your Details (KYC)</span></div>
+          <div className="card-title" style={{ marginBottom: 16 }}><span>Client Details (KYC)</span></div>
 
           {error && (
             <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(220,50,50,0.1)', border: '1px solid rgba(220,50,50,0.3)', color: 'var(--status-danger)', fontSize: '0.85rem', marginBottom: 16 }}>
@@ -147,9 +235,9 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
           )}
 
           <form onSubmit={handleSubmit} noValidate>
-            {field('fullName', 'Full Legal Name *', <input id="fullName" type="text" className="input-field" placeholder="As on Aadhaar card" value={fullName} onChange={e => setFullName(e.target.value)} required />)}
-            {field('phone1', 'Primary Phone Number *', <input id="phone1" type="tel" className="input-field" placeholder="10-digit mobile number" value={phone1} onChange={e => setPhone1(e.target.value)} required />)}
-            {field('phone2', 'Secondary Phone Number (Optional)', <input id="phone2" type="tel" className="input-field" placeholder="Alternate number" value={phone2} onChange={e => setPhone2(e.target.value)} />)}
+            {field('fullName', 'Full Legal Name *', <input id="fullName" type="text" className="input-field" placeholder="As on official documents" value={fullName} onChange={e => setFullName(e.target.value)} required />)}
+            {field('phone1', 'Primary Mobile Number *', <input id="phone1" type="tel" className="input-field" placeholder="10-digit mobile number" value={phone1} onChange={e => setPhone1(e.target.value)} required />)}
+            {field('phone2', 'Secondary Phone Number (Optional)', <input id="phone2" type="tel" className="input-field" placeholder="Alternate phone number" value={phone2} onChange={e => setPhone2(e.target.value)} />)}
 
             {field('aadhaar', 'Aadhaar Number *', (
               <div>
@@ -159,13 +247,13 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
                   onChange={e => setAadhaarInput(e.target.value.replace(/[^\d]/g, '').slice(0, 12))}
                   required autoComplete="off" />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 4, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-                  <LockIcon />
-                  Only last 4 digits are stored. Full number is discarded immediately.
+                  <Lock size={12} />
+                  <span>Only the last 4 digits are stored for verification (UIDAI compliant).</span>
                 </div>
               </div>
             ))}
 
-            {field('currentAddress', 'Current Address *', <textarea id="currentAddress" className="input-field" rows={3} placeholder="House No., Street, Village/Town, District, State, PIN" value={currentAddress} onChange={e => setCurrentAddress(e.target.value)} required />)}
+            {field('currentAddress', 'Current Address *', <textarea id="currentAddress" className="input-field" rows={3} placeholder="House / Flat No., Street, Landmark, District, PIN" value={currentAddress} onChange={e => setCurrentAddress(e.target.value)} required />)}
 
             <div style={{ marginBottom: 14 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -174,18 +262,31 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees }: P
               </label>
             </div>
 
-            {!sameAsCurrent && field('permanentAddress', 'Permanent Address *', <textarea id="permanentAddress" className="input-field" rows={3} placeholder="House No., Street, Village/Town, District, State, PIN" value={permanentAddress} onChange={e => setPermanentAddress(e.target.value)} />)}
+            {!sameAsCurrent && field('permanentAddress', 'Permanent Address *', <textarea id="permanentAddress" className="input-field" rows={3} placeholder="Permanent address details" value={permanentAddress} onChange={e => setPermanentAddress(e.target.value)} />)}
 
-            <div style={{ marginTop: 10, padding: '10px 14px', background: 'var(--bg-app)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                <LockIcon />
-                <strong style={{ color: 'var(--text-secondary)' }}>Legal Confidentiality</strong>
+            {fees.length > 0 && (
+              <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: '12px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>Attached Legal Fees</div>
+                {fees.map((f) => (
+                  <div key={f.fee_type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem', marginTop: 4 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>{feeLabel(f.fee_type)}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>₹{f.amount.toLocaleString('en-IN')}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '0.9rem' }}>
+                  <span>Total Due</span>
+                  <span style={{ color: 'var(--accent-primary)' }}>₹{totalFee.toLocaleString('en-IN')}</span>
+                </div>
               </div>
-              By submitting, you confirm the accuracy of your KYC information. Your data is stored securely under attorney-client privilege and used solely for legal representation purposes.
-            </div>
+            )}
 
-            <button type="submit" className="action-btn action-btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '13px 0', fontSize: '0.95rem' }} disabled={submitting}>
-              {submitting ? 'Submitting…' : 'Submit KYC & Complete Registration'}
+            <button
+              type="submit"
+              className="action-btn action-btn-primary"
+              style={{ width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: '0.95rem' }}
+              disabled={submitting}
+            >
+              {submitting ? 'Submitting Registration…' : 'Submit Registration Details →'}
             </button>
           </form>
         </div>

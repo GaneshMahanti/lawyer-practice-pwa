@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
 import {
   loadUnifiedNotes,
-  saveUnifiedNotes,
   createUnifiedNote,
   deleteUnifiedNote,
   updateUnifiedNote,
@@ -13,6 +12,26 @@ import {
   loadMatters,
 } from '@/lib/data/repository';
 import type { DiaryEntry, Client, Matter } from '@/lib/types/database';
+import {
+  BookOpen,
+  Edit3,
+  Mic,
+  Square,
+  Play,
+  Pause,
+  Trash2,
+  Check,
+  X,
+  Languages,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  Clock,
+  FileText,
+  Volume2,
+  Sparkles,
+  History,
+} from 'lucide-react';
 
 type InputMode = 'type' | 'voice';
 
@@ -25,34 +44,40 @@ function UnifiedNotesContent() {
   const [clients, setClients] = useState<Client[]>([]);
   const [matters, setMatters] = useState<Matter[]>([]);
 
+  // Selected Diary Date (Defaults to Today)
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
   // Input Mode: 'type' vs 'voice'
   const [inputMode, setInputMode] = useState<InputMode>('type');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'voice' | 'text'>('all');
 
-  // Common Entry Fields
+  // New Entry Fields
   const [title, setTitle] = useState('');
   const [typedBody, setTypedBody] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedMatterId, setSelectedMatterId] = useState(matterFilterParam || '');
 
-  // Translate panel
-  const [translateOpen, setTranslateOpen] = React.useState(false);
-  const [translateInput, setTranslateInput] = React.useState('');
-  const [translateResult, setTranslateResult] = React.useState('');
-  const [translating, setTranslating] = React.useState(false);
+  // Translation Panel (inside Diary)
+  const [translateOpen, setTranslateOpen] = useState(false);
+  const [translateSourceLang, setTranslateSourceLang] = useState<'te' | 'hi' | 'en'>('te');
+  const [translateTargetLang, setTranslateTargetLang] = useState<'en' | 'te' | 'hi'>('en');
+  const [translateInput, setTranslateInput] = useState('');
+  const [translateResult, setTranslateResult] = useState('');
+  const [translating, setTranslating] = useState(false);
 
-  // Edit State
+  // Edit Note State (Written notes & Voice transcripts)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
+  const [editType, setEditType] = useState<'text' | 'voice'>('text');
+  const [viewingOriginalTranscriptId, setViewingOriginalTranscriptId] = useState<string | null>(null);
 
   // Voice Recording states
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'recorded'>('idle');
   const [durationSec, setDurationSec] = useState(0);
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [whisperNotice, setWhisperNotice] = useState(false);
 
   // Audio Playback
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
@@ -76,12 +101,46 @@ function UnifiedNotesContent() {
     return () => window.removeEventListener('vakildesk-notes-update', handleUpdate);
   }, []);
 
-  // Filter matters based on selected client
   const clientMatters = selectedClientId
     ? matters.filter((m) => m.client_id === selectedClientId)
     : matters;
 
-  // ── Voice Recording Logic ─────────────────────────────────────────────────
+  // ── Date Navigation ──────────────────────────────────────────────────────────
+  const handlePrevDay = () => {
+    const prev = new Date(selectedDate);
+    prev.setDate(prev.getDate() - 1);
+    setSelectedDate(prev);
+  };
+
+  const handleNextDay = () => {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + 1);
+    setSelectedDate(next);
+  };
+
+  const handleToday = () => {
+    setSelectedDate(new Date());
+  };
+
+  const formattedDayOfWeek = selectedDate.toLocaleDateString('en-IN', { weekday: 'long' }).toUpperCase();
+  const formattedDayNum = selectedDate.toLocaleDateString('en-IN', { day: '2-digit' });
+  const formattedMonthYear = selectedDate.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }).toUpperCase();
+  const dateKey = selectedDate.toISOString().slice(0, 10);
+  const isToday = new Date().toISOString().slice(0, 10) === dateKey;
+
+  // Filter notes by date (or search)
+  const filteredNotes = notes.filter((n) => {
+    const noteDate = (n.created_at || '').slice(0, 10);
+    const matchesDate = noteDate === dateKey;
+    const matchesFilter = filterType === 'all' || n.entry_type === filterType;
+    const matchesSearch = !searchQuery.trim() ||
+      (n.title && n.title.toLowerCase().includes(searchQuery.toLowerCase())) ||
+      (n.content && n.content.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    return matchesDate && matchesFilter && matchesSearch;
+  });
+
+  // ── Voice Recording Logic ───────────────────────────────────────────────────
   const startTimer = () => {
     setDurationSec(0);
     timerIntervalRef.current = setInterval(() => {
@@ -121,12 +180,11 @@ function UnifiedNotesContent() {
         setRecordingState('recorded');
       };
 
-      mr.start(250);
+      mr.start();
       setRecordingState('recording');
       startTimer();
-    } catch (err) {
-      console.error('Microphone access failed:', err);
-      alert('Microphone access denied or not supported on this browser.');
+    } catch {
+      alert('Microphone access denied or unavailable.');
     }
   };
 
@@ -137,611 +195,888 @@ function UnifiedNotesContent() {
     }
   };
 
-  const resetRecording = () => {
+  const discardRecording = () => {
     stopTimer();
-    setRecordingState('idle');
-    setDurationSec(0);
-    setAudioBlobUrl(null);
+    if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
     setAudioBlob(null);
-    audioChunksRef.current = [];
+    setAudioBlobUrl(null);
+    setDurationSec(0);
+    setRecordingState('idle');
   };
 
-  // Save Note (Typed or Voice)
-  const handleSaveNote = (e: React.FormEvent) => {
-    e.preventDefault();
+  // ── Save Voice Entry ────────────────────────────────────────────────────────
+  const handleSaveVoice = () => {
+    if (!audioBlobUrl) return;
 
-    if (inputMode === 'type') {
-      if (!typedBody.trim()) return;
-      createUnifiedNote({
-        entry_type: 'text',
-        title: title.trim() || 'Typed Note',
-        content: typedBody.trim(),
-        client_id: selectedClientId || null,
-        matter_id: selectedMatterId || null,
-      });
-      setTitle('');
-      setTypedBody('');
-    } else {
-      // Voice mode
-      if (!audioBlobUrl) return;
-      createUnifiedNote({
-        entry_type: 'voice',
-        title: title.trim() || `Voice Memo (${formatDuration(durationSec)})`,
-        content: 'Audio recorded. Ready for Whisper transcription processing.',
-        audio_url: audioBlobUrl,
-        duration_seconds: durationSec,
-        client_id: selectedClientId || null,
-        matter_id: selectedMatterId || null,
-        transcription_status: 'recorded',
-      });
-      setWhisperNotice(true);
-      setTimeout(() => setWhisperNotice(false), 5000);
-      resetRecording();
-      setTitle('');
-    }
+    const initialTranscript = typedBody.trim() || 'Voice dictation recorded.';
+    createUnifiedNote({
+      client_id: selectedClientId || null,
+      matter_id: selectedMatterId || null,
+      entry_type: 'voice',
+      title: title.trim() || `Voice Memo (${formattedDayOfWeek})`,
+      content: initialTranscript,
+      transcript: initialTranscript,
+      original_transcript: initialTranscript,
+      audio_url: audioBlobUrl,
+      duration_seconds: durationSec,
+      language: 'en',
+    });
 
+    // Reset fields
+    setTitle('');
+    setTypedBody('');
+    discardRecording();
     refreshData();
   };
 
-  // Playback helper
-  const handlePlayVoice = (noteId: string, url?: string | null) => {
+  // ── Save Typed Note ─────────────────────────────────────────────────────────
+  const handleSaveTyped = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!typedBody.trim()) return;
+
+    createUnifiedNote({
+      client_id: selectedClientId || null,
+      matter_id: selectedMatterId || null,
+      entry_type: 'text',
+      title: title.trim() || `Diary Entry (${formattedDayOfWeek})`,
+      content: typedBody.trim(),
+      language: 'en',
+    });
+
+    setTitle('');
+    setTypedBody('');
+    refreshData();
+  };
+
+  // ── Edit Note Logic (Written notes AND Voice Transcripts) ────────────────────
+  const startEditing = (note: DiaryEntry) => {
+    setEditingNoteId(note.id);
+    setEditTitle(note.title || '');
+    setEditContent(note.content || note.transcript || '');
+    setEditType(note.entry_type);
+  };
+
+  const cancelEditing = () => {
+    setEditingNoteId(null);
+    setEditTitle('');
+    setEditContent('');
+  };
+
+  const saveEditing = (note: DiaryEntry) => {
+    if (!editContent.trim()) return;
+
+    if (note.entry_type === 'voice') {
+      // Voice Note Editing: Preserve original audio URL and original transcript
+      const originalTranscript = note.original_transcript || note.transcript || note.content || '';
+      updateUnifiedNote(note.id, {
+        title: editTitle.trim() || note.title,
+        content: editContent.trim(),
+        transcript: editContent.trim(),
+        original_transcript: originalTranscript,
+        edited_transcript: editContent.trim(),
+        transcript_edited_at: new Date().toISOString(),
+      });
+    } else {
+      // Written Note Editing
+      updateUnifiedNote(note.id, {
+        title: editTitle.trim() || note.title,
+        content: editContent.trim(),
+      });
+    }
+
+    cancelEditing();
+    refreshData();
+  };
+
+  // ── Translation Workflow ───────────────────────────────────────────────────
+  const handleTranslate = async () => {
+    if (!translateInput.trim()) return;
+    setTranslating(true);
+    setTranslateResult('');
+
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: translateInput.trim(),
+          source_lang: translateSourceLang,
+          target_lang: translateTargetLang,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.translated_text) {
+        setTranslateResult(data.translated_text);
+      } else {
+        setTranslateResult(data.error || 'Translation failed.');
+      }
+    } catch {
+      setTranslateResult('Translation service unavailable.');
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const appendTranslationToNote = () => {
+    if (!translateResult) return;
+    const formatted = `\n\n[Translation (${translateSourceLang.toUpperCase()} → ${translateTargetLang.toUpperCase()})]:\n${translateResult}`;
+    setTypedBody((prev) => (prev ? prev + formatted : translateResult));
+    setTranslateOpen(false);
+  };
+
+  // ── Audio Playback ──────────────────────────────────────────────────────────
+  const togglePlayAudio = (noteId: string, url?: string | null) => {
     if (!url) return;
+
     if (playingNoteId === noteId) {
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
-        audioPlayerRef.current.currentTime = 0;
       }
       setPlayingNoteId(null);
-      return;
-    }
-
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.src = url;
-      audioPlayerRef.current.play();
-      setPlayingNoteId(noteId);
-      audioPlayerRef.current.onended = () => setPlayingNoteId(null);
-      audioPlayerRef.current.onerror = () => setPlayingNoteId(null);
-    }
-  };
-
-  // Formatters
-  const formatDuration = (sec: number) => {
-    const m = Math.floor(sec / 60).toString().padStart(2, '0');
-    const s = (sec % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  const formatDate = (iso: string) => {
-    return new Date(iso).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  // Filtered Notes
-  const filteredNotes = notes.filter((n) => {
-    if (matterFilterParam && n.matter_id !== matterFilterParam) return false;
-    if (filterType !== 'all' && n.entry_type !== filterType) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = (n.title || '').toLowerCase().includes(q);
-      const matchContent = (n.content || '').toLowerCase().includes(q);
-      if (!matchTitle && !matchContent) return false;
-    }
-    return true;
-  });
-
-  const getClientName = (cid?: string | null) => {
-    if (!cid) return null;
-    const c = clients.find((item) => item.id === cid);
-    return c ? c.name : null;
-  };
-
-  const getMatterTitle = (mid?: string | null) => {
-    if (!mid) return null;
-    const m = matters.find((item) => item.id === mid);
-    return m ? `${m.matter_number} - ${m.title}` : null;
-  };
-
-
-  // ── Telugu Translation Utility Panel ────────────────────────────────────
-  function TranslatePanel() {
-    const handleTranslate = async () => {
-      if (!translateInput.trim()) return;
-      setTranslating(true);
-      setTranslateResult('');
-      try {
-        const res = await fetch('/api/translate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ teluguText: translateInput }),
-        });
-        const data = await res.json();
-        setTranslateResult(data.englishText || data.error || 'Translation failed.');
-      } catch {
-        setTranslateResult('Network error. Please try again.');
-      } finally {
-        setTranslating(false);
+    } else {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
       }
-    };
+      const audio = new Audio(url);
+      audioPlayerRef.current = audio;
+      audio.onended = () => setPlayingNoteId(null);
+      audio.play();
+      setPlayingNoteId(noteId);
+    }
+  };
 
-    return (
-      <div className="card" style={{ marginBottom: 14 }}>
-        <button
-          type="button"
-          onClick={() => setTranslateOpen((o) => !o)}
-          style={{
+  const formatSec = (s: number) => {
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  return (
+    <div style={{ paddingBottom: 64 }}>
+      {/* ── Diary Notebook Cover & Header ── */}
+      <div style={{
+        background: 'var(--bg-card)',
+        borderRadius: 20,
+        border: '1px solid var(--border-subtle)',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+        overflow: 'hidden',
+        marginBottom: 20,
+      }}>
+        {/* Notebook Top Leather Binding Strip */}
+        <div style={{
+          background: 'linear-gradient(90deg, #8a5a22, #b8860b, #8a5a22)',
+          height: 8,
+          width: '100%',
+        }} />
+
+        {/* Diary Page Header */}
+        <div style={{
+          padding: '20px 20px 16px',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <BookOpen size={20} color="var(--accent-gold, #c8a03c)" />
+              <span style={{ fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--accent-gold, #c8a03c)', textTransform: 'uppercase' }}>
+                Advocate&apos;s Legal Diary
+              </span>
+            </div>
+
+            {/* Translation Bookmark Button */}
+            <button
+              type="button"
+              onClick={() => setTranslateOpen(!translateOpen)}
+              className="action-btn"
+              style={{
+                fontSize: '0.8rem',
+                padding: '6px 12px',
+                gap: 6,
+                borderColor: translateOpen ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                color: translateOpen ? 'var(--accent-primary)' : 'var(--text-secondary)',
+              }}
+            >
+              <Languages size={15} />
+              <span>Translate</span>
+            </button>
+          </div>
+
+          {/* Date Stamp & Navigation Bar */}
+          <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            width: '100%',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-            color: 'var(--text-primary)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
-              <path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>
-            </svg>
-            Telugu Translation
-          </div>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-            style={{ transform: translateOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </button>
-
-        {translateOpen && (
-          <div style={{ marginTop: 14 }}>
-            <label className="input-label">Paste Telugu text to translate</label>
-            <textarea
-              className="input-field"
-              rows={4}
-              placeholder="Type or paste Telugu legal text here…"
-              value={translateInput}
-              onChange={(e) => setTranslateInput(e.target.value)}
-              style={{ fontFamily: "'Noto Sans Telugu', system-ui, sans-serif", fontSize: '0.95rem', lineHeight: 1.6 }}
-            />
+            background: 'var(--bg-surface-elevated)',
+            borderRadius: 14,
+            padding: '12px 14px',
+          }}>
             <button
               type="button"
-              className="action-btn action-btn-primary"
-              style={{ width: '100%', justifyContent: 'center', marginBottom: translateResult ? 14 : 0 }}
-              disabled={translating || !translateInput.trim()}
-              onClick={handleTranslate}
+              onClick={handlePrevDay}
+              aria-label="Previous day"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                padding: 6,
+              }}
             >
-              {translating ? 'Translating…' : 'Translate to English →'}
+              <ChevronLeft size={22} />
             </button>
 
-            {translateResult && (
-              <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', fontWeight: 700 }}>
-                  English Translation:
-                </div>
-                <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {translateResult}
-                </div>
+            {/* Big Prominent Date Header */}
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                fontSize: '0.76rem',
+                fontWeight: 700,
+                letterSpacing: '0.12em',
+                color: 'var(--accent-primary)',
+              }}>
+                {formattedDayOfWeek}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 8, marginTop: 2 }}>
+                <span style={{ fontSize: '1.8rem', fontWeight: 800, fontFamily: 'serif', lineHeight: 1, color: 'var(--text-primary)' }}>
+                  {formattedDayNum}
+                </span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-secondary)' }}>
+                  {formattedMonthYear}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {!isToday && (
                 <button
                   type="button"
-                  className="action-btn"
-                  style={{ marginTop: 10, fontSize: '0.8rem' }}
-                  onClick={() => {
-                    setTypedBody((prev) => prev ? prev + '\n\n[Translation]\n' + translateResult : '[Translation]\n' + translateResult);
-                    setTranslateOpen(false);
+                  onClick={handleToday}
+                  style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    padding: '4px 8px',
+                    borderRadius: 6,
+                    background: 'var(--accent-primary)',
+                    color: '#fff',
+                    border: 'none',
+                    cursor: 'pointer',
                   }}
                 >
-                  Append to note
+                  Today
                 </button>
+              )}
+              <button
+                type="button"
+                onClick={handleNextDay}
+                aria-label="Next day"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: 6,
+                }}
+              >
+                <ChevronRight size={22} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Collapsible Translate Panel (Inside Diary Workflow) ── */}
+        {translateOpen && (
+          <div style={{
+            background: 'var(--bg-surface-elevated)',
+            borderBottom: '1px solid var(--border-subtle)',
+            padding: '16px 20px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Languages size={16} color="var(--accent-primary)" />
+                <span>Bidirectional Legal Translation</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTranslateOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+              <div>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>From Language</label>
+                <select
+                  className="input-field"
+                  style={{ fontSize: '0.82rem', padding: '6px 8px' }}
+                  value={translateSourceLang}
+                  onChange={(e) => setTranslateSourceLang(e.target.value as any)}
+                >
+                  <option value="te">తెలుగు (Telugu)</option>
+                  <option value="hi">हिन्दी (Hindi)</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div>
+                <label className="input-label" style={{ fontSize: '0.75rem' }}>To Language</label>
+                <select
+                  className="input-field"
+                  style={{ fontSize: '0.82rem', padding: '6px 8px' }}
+                  value={translateTargetLang}
+                  onChange={(e) => setTranslateTargetLang(e.target.value as any)}
+                >
+                  <option value="en">English</option>
+                  <option value="te">తెలుగు (Telugu)</option>
+                  <option value="hi">हिन्दी (Hindi)</option>
+                </select>
+              </div>
+            </div>
+
+            <textarea
+              className="input-field"
+              rows={2}
+              placeholder="Enter text to translate…"
+              value={translateInput}
+              onChange={(e) => setTranslateInput(e.target.value)}
+              style={{ fontSize: '0.85rem', marginBottom: 8 }}
+            />
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={handleTranslate}
+                className="action-btn action-btn-primary"
+                style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '8px 12px' }}
+                disabled={translating || !translateInput.trim()}
+              >
+                {translating ? 'Translating…' : 'Translate Text'}
+              </button>
+              {translateResult && (
+                <button
+                  type="button"
+                  onClick={appendTranslationToNote}
+                  className="action-btn"
+                  style={{ fontSize: '0.82rem', padding: '8px 12px' }}
+                >
+                  Insert into Note ↓
+                </button>
+              )}
+            </div>
+
+            {translateResult && (
+              <div style={{
+                marginTop: 10,
+                padding: '10px 12px',
+                background: 'var(--bg-app)',
+                borderRadius: 8,
+                border: '1px solid var(--border-subtle)',
+                fontSize: '0.85rem',
+                lineHeight: 1.4,
+              }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>Translation Result:</div>
+                {translateResult}
               </div>
             )}
           </div>
         )}
-      </div>
-    );
-  }
 
-  return (
-    <div>
-      <div className="section-label">{t('diary')}</div>
-
-      {/* Hidden audio element for playback */}
-      <audio ref={audioPlayerRef} style={{ display: 'none' }} />
-
-      {/* Whisper Notification Banner */}
-      {whisperNotice && (
-        <div style={{ backgroundColor: 'var(--accent-primary-dim)', color: 'var(--accent-primary)', padding: '10px 14px', borderRadius: 8, fontSize: '0.84rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>✓</span>
-          <span>Voice memo saved. Pipeline ready for Whisper transcription processing.</span>
-        </div>
-      )}
-
-      {/* ── Unified Entry Card ── */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div className="card-title" style={{ margin: 0 }}>Add Note / Voice Memo</div>
-
-          {/* Mode Switcher: Type vs Voice */}
-          <div style={{ display: 'flex', gap: 4, backgroundColor: 'var(--bg-app)', padding: 3, borderRadius: 8 }}>
+        {/* ── Diary Notebook Entry Workspace ── */}
+        <div style={{ padding: '16px 20px' }}>
+          {/* Mode Switcher */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             <button
               type="button"
               onClick={() => setInputMode('type')}
-              style={{
-                background: inputMode === 'type' ? 'var(--bg-surface-elevated)' : 'transparent',
-                color: inputMode === 'type' ? 'var(--text-primary)' : 'var(--text-muted)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '4px 10px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className={`action-btn ${inputMode === 'type' ? 'action-btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem', gap: 6 }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg> Type
+              <FileText size={16} />
+              <span>Written Entry</span>
             </button>
             <button
               type="button"
               onClick={() => setInputMode('voice')}
-              style={{
-                background: inputMode === 'voice' ? 'var(--bg-surface-elevated)' : 'transparent',
-                color: inputMode === 'voice' ? 'var(--text-primary)' : 'var(--text-muted)',
-                border: 'none',
-                borderRadius: 6,
-                padding: '4px 10px',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+              className={`action-btn ${inputMode === 'voice' ? 'action-btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem', gap: 6 }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg> Voice
+              <Mic size={16} />
+              <span>Voice Dictation</span>
             </button>
           </div>
-        </div>
 
-        <form onSubmit={handleSaveNote}>
-          {/* Note Title */}
-          <label className="input-label">Note Title (Optional)</label>
+          {/* Client / Case Selectors */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+            <select
+              className="input-field"
+              style={{ fontSize: '0.82rem', padding: '6px 8px' }}
+              value={selectedClientId}
+              onChange={(e) => {
+                setSelectedClientId(e.target.value);
+                setSelectedMatterId('');
+              }}
+            >
+              <option value="">General (No Client)</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+
+            <select
+              className="input-field"
+              style={{ fontSize: '0.82rem', padding: '6px 8px' }}
+              value={selectedMatterId}
+              onChange={(e) => setSelectedMatterId(e.target.value)}
+            >
+              <option value="">Case / Matter (Optional)</option>
+              {clientMatters.map((m) => (
+                <option key={m.id} value={m.id}>{m.title || m.matter_number}</option>
+              ))}
+            </select>
+          </div>
+
           <input
             type="text"
             className="input-field"
-            placeholder={inputMode === 'type' ? 'e.g. Cross-examination pointers' : 'e.g. Client conference memo'}
+            placeholder="Docket Title / Court Hearing Reference…"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 10 }}
           />
 
-          {/* Client Link (Optional) */}
-          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label className="input-label">Link Client (Optional)</label>
-              <select
-                className="input-field"
-                value={selectedClientId}
-                onChange={(e) => {
-                  setSelectedClientId(e.target.value);
-                  setSelectedMatterId('');
-                }}
-                style={{ margin: 0 }}
-              >
-                <option value="">-- General Note --</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Case Link (Optional) */}
-            <div style={{ flex: 1 }}>
-              <label className="input-label">Link Case (Optional)</label>
-              <select
-                className="input-field"
-                value={selectedMatterId}
-                onChange={(e) => setSelectedMatterId(e.target.value)}
-                style={{ margin: 0 }}
-              >
-                <option value="">-- General Case --</option>
-                {clientMatters.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.matter_number}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Mode 1: Direct Typing */}
+          {/* Type Mode */}
           {inputMode === 'type' && (
-            <div>
-              <label className="input-label">Note Content *</label>
-              <textarea
-                className="input-field"
-                rows={5}
-                placeholder="Type your notes, hearing points, statutory citations, or reminders…"
-                required
-                value={typedBody}
-                onChange={(e) => setTypedBody(e.target.value)}
-              />
+            <form onSubmit={handleSaveTyped}>
+              <div style={{
+                position: 'relative',
+                borderLeft: '2px solid rgba(220, 38, 38, 0.45)',
+                paddingLeft: 12,
+                marginBottom: 12,
+              }}>
+                <textarea
+                  className="input-field"
+                  rows={4}
+                  placeholder="Record today's proceedings, daily case observations, or notes…"
+                  value={typedBody}
+                  onChange={(e) => setTypedBody(e.target.value)}
+                  style={{
+                    lineHeight: '28px',
+                    fontSize: '0.92rem',
+                    background: 'transparent',
+                  }}
+                />
+              </div>
 
               <button
                 type="submit"
                 className="action-btn action-btn-primary"
-                style={{ width: '100%', justifyContent: 'center' }}
+                style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem', padding: '10px 0' }}
+                disabled={!typedBody.trim()}
               >
-                Save Typed Note
+                Record in Daily Diary →
               </button>
-            </div>
+            </form>
           )}
 
-          {/* Mode 2: Voice Recording */}
+          {/* Voice Dictation Mode */}
           {inputMode === 'voice' && (
             <div>
-              <div
-                style={{
-                  backgroundColor: 'var(--bg-app)',
-                  borderRadius: 10,
-                  padding: 20,
-                  textAlign: 'center',
-                  marginBottom: 14,
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
+              <div style={{
+                background: 'var(--bg-surface-elevated)',
+                borderRadius: 14,
+                padding: '16px 14px',
+                textAlign: 'center',
+                marginBottom: 12,
+              }}>
                 {recordingState === 'idle' && (
                   <div>
                     <button
                       type="button"
                       onClick={startRecording}
                       style={{
-                        width: 64,
-                        height: 64,
+                        width: 56,
+                        height: 56,
                         borderRadius: '50%',
-                        backgroundColor: 'var(--status-danger)',
+                        background: 'var(--status-danger)',
                         color: '#fff',
                         border: 'none',
-                        fontSize: '1.6rem', // record button
-                        cursor: 'pointer',
-                        display: 'inline-flex',
+                        display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        boxShadow: '0 4px 12px rgba(239,83,80,0.4)',
+                        margin: '0 auto 8px',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
                       }}
                     >
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                      <Mic size={24} />
                     </button>
-                    <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: 10 }}>
-                      Tap to record voice note
+                    <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+                      Tap to record voice entry
                     </div>
                   </div>
                 )}
 
                 {recordingState === 'recording' && (
                   <div>
-                    <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--status-danger)', marginBottom: 12 }}>
-                      ⏺ {formatDuration(durationSec)}
-                    </div>
                     <button
                       type="button"
                       onClick={stopRecording}
-                      className="action-btn"
                       style={{
-                        backgroundColor: 'var(--status-danger)',
+                        width: 56,
+                        height: 56,
+                        borderRadius: '50%',
+                        background: 'var(--status-danger)',
                         color: '#fff',
                         border: 'none',
-                        margin: '0 auto',
-                        padding: '10px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        margin: '0 auto 8px',
+                        cursor: 'pointer',
                       }}
                     >
-                      Stop Recording
+                      <Square size={20} />
                     </button>
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--status-danger)' }}>
+                      Recording: {formatSec(durationSec)}
+                    </div>
                   </div>
                 )}
 
                 {recordingState === 'recorded' && (
                   <div>
-                    <div style={{ fontSize: '0.9rem', color: 'var(--status-success)', fontWeight: 600, marginBottom: 8 }}>
-                      ✓ Audio Recorded ({formatDuration(durationSec)})
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--status-success)', marginBottom: 8 }}>
+                      Dictation recorded ({formatSec(durationSec)})
                     </div>
-                    {audioBlobUrl && (
-                      <audio controls src={audioBlobUrl} style={{ width: '100%', maxWidth: 300, height: 36, margin: '8px 0' }} />
-                    )}
-                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 10 }}>
+                    <audio src={audioBlobUrl || undefined} controls style={{ width: '100%', height: 36, marginBottom: 8 }} />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                       <button
                         type="button"
+                        onClick={discardRecording}
                         className="action-btn"
-                        style={{ fontSize: '0.8rem' }}
-                        onClick={resetRecording}
+                        style={{ fontSize: '0.78rem', color: 'var(--status-danger)' }}
                       >
-                        Discard & Re-record
+                        <Trash2 size={14} /> Discard
                       </button>
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* Optional text or transcript note alongside audio */}
+              <textarea
+                className="input-field"
+                rows={2}
+                placeholder="Add initial notes or keywords for this recording…"
+                value={typedBody}
+                onChange={(e) => setTypedBody(e.target.value)}
+                style={{ fontSize: '0.85rem', marginBottom: 12 }}
+              />
+
               <button
-                type="submit"
+                type="button"
+                onClick={handleSaveVoice}
                 className="action-btn action-btn-primary"
-                style={{ width: '100%', justifyContent: 'center' }}
+                style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem', padding: '10px 0' }}
                 disabled={recordingState !== 'recorded'}
               >
-                Save Voice Memo
+                Save Voice Entry to Diary →
               </button>
             </div>
           )}
-        </form>
-      </div>
-
-
-      {/* ── Telugu Translation Utility ── */}
-      <TranslatePanel />
-
-      {/* ── Chronological Feed Filter & Search ── */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        <button
-          type="button"
-          className={`action-btn ${filterType === 'all' ? 'action-btn-primary' : ''}`}
-          style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '6px 0' }}
-          onClick={() => setFilterType('all')}
-        >
-          All Notes ({notes.length})
-        </button>
-        <button
-          type="button"
-          className={`action-btn ${filterType === 'text' ? 'action-btn-primary' : ''}`}
-          style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '6px 0' }}
-          onClick={() => setFilterType('text')}
-        >
-          Typed ({notes.filter((n) => n.entry_type === 'text').length})
-        </button>
-        <button
-          type="button"
-          className={`action-btn ${filterType === 'voice' ? 'action-btn-primary' : ''}`}
-          style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '6px 0' }}
-          onClick={() => setFilterType('voice')}
-        >
-          Voice ({notes.filter((n) => n.entry_type === 'voice').length})
-        </button>
-      </div>
-
-      {/* Search Bar */}
-      <div style={{ marginBottom: 14 }}>
-        <input
-          type="text"
-          className="input-field"
-          placeholder="Search notes by title or keywords…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ margin: 0 }}
-        />
-      </div>
-
-      {/* Case filter active notice */}
-      {matterFilterParam && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--bg-surface-elevated)', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: '0.82rem' }}>
-          <span>Filtered for case: <strong>{getMatterTitle(matterFilterParam)}</strong></span>
-          <a href="/app/diary" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontWeight: 600 }}>
-            Clear ✕
-          </a>
         </div>
-      )}
+      </div>
 
-      {/* ── Unified Chronological Feed ── */}
-      {filteredNotes.length === 0 ? (
-        <div className="card">
-          <div className="empty-state">
-            {searchQuery
-              ? 'No notes match your search.'
-              : 'No notes yet. Type a note or record a voice memo above.'}
+      {/* ── Ruled Lined Notebook Entries Feed ── */}
+      <div>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}>
+          <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
+            Entries for {formattedDayNum} {formattedMonthYear} ({filteredNotes.length})
+          </div>
+
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['all', 'text', 'voice'] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilterType(f)}
+                style={{
+                  fontSize: '0.74rem',
+                  fontWeight: 600,
+                  padding: '3px 8px',
+                  borderRadius: 12,
+                  border: filterType === f ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                  background: filterType === f ? 'var(--accent-primary)' : 'var(--bg-card)',
+                  color: filterType === f ? '#fff' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {f}
+              </button>
+            ))}
           </div>
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredNotes.map((note) => {
-            const isVoice = note.entry_type === 'voice';
-            const clientName = getClientName(note.client_id);
-            const matterTitle = getMatterTitle(note.matter_id);
 
-            return (
-              <div key={note.id} className="card" style={{ marginBottom: 0 }}>
-                {/* Header with Source Tag (Voice vs Typed) */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                  <div>
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        backgroundColor: isVoice ? 'var(--status-danger-bg)' : 'var(--accent-primary-dim)',
-                        color: isVoice ? 'var(--status-danger)' : 'var(--accent-primary)',
-                        marginBottom: 4,
-                      }}
-                    >
-                      {isVoice ? (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}} aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>Voice Memo</>) : (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}} aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg>Typed Note</>)}
-                    </span>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
-                      {note.title}
+        {filteredNotes.length === 0 ? (
+          <div style={{
+            background: 'var(--bg-card)',
+            borderRadius: 16,
+            border: '1px solid var(--border-subtle)',
+            padding: '32px 16px',
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            fontSize: '0.88rem',
+          }}>
+            No diary entries recorded for {selectedDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {filteredNotes.map((note) => {
+              const isEditing = editingNoteId === note.id;
+              const isVoice = note.entry_type === 'voice';
+              const isPlaying = playingNoteId === note.id;
+              const hasEditedTranscript = Boolean(note.edited_transcript);
+              const showingOriginal = viewingOriginalTranscriptId === note.id;
+
+              return (
+                <div
+                  key={note.id}
+                  style={{
+                    background: 'var(--bg-card)',
+                    borderRadius: 16,
+                    border: '1px solid var(--border-subtle)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                    overflow: 'hidden',
+                    position: 'relative',
+                  }}
+                >
+                  {/* Notebook Left Red Margin Line */}
+                  <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    bottom: 0,
+                    left: 36,
+                    width: 2,
+                    background: 'rgba(220, 38, 38, 0.35)',
+                    pointerEvents: 'none',
+                  }} />
+
+                  <div style={{ padding: '16px 16px 14px 48px' }}>
+                    {/* Header Row */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <div>
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            className="input-field"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            style={{ fontSize: '0.95rem', fontWeight: 700, padding: '4px 8px', marginBottom: 6 }}
+                          />
+                        ) : (
+                          <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {note.title}
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          <Clock size={12} />
+                          <span>{new Date(note.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          {isVoice && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: 'var(--accent-primary)', fontWeight: 600 }}>
+                              • <Mic size={12} /> Voice Entry {note.duration_seconds ? `(${formatSec(note.duration_seconds)})` : ''}
+                            </span>
+                          )}
+                          {note.updated_at && note.updated_at !== note.created_at && (
+                            <span style={{ color: 'var(--text-muted)' }}>• Edited</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {!isEditing && (
+                          <button
+                            type="button"
+                            onClick={() => startEditing(note)}
+                            title={isVoice ? 'Edit Transcript' : 'Edit Note'}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--text-secondary)',
+                              cursor: 'pointer',
+                              padding: 4,
+                            }}
+                          >
+                            <Edit3 size={16} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Delete this diary entry?')) {
+                              deleteUnifiedNote(note.id);
+                              refreshData();
+                            }
+                          }}
+                          title="Delete Entry"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer',
+                            padding: 4,
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    {formatDate(note.created_at)}
-                  </span>
-                </div>
-
-                {/* Linked Client and Case Tags */}
-                {(clientName || matterTitle) && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                    {clientName && (
-                      <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--bg-surface-elevated)', color: 'var(--text-secondary)' }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:3}} aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{clientName}
-                      </span>
+                    {/* Audio Player for Voice Entries (Immutable Audio) */}
+                    {isVoice && note.audio_url && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '8px 12px',
+                        background: 'var(--bg-surface-elevated)',
+                        borderRadius: 10,
+                        margin: '8px 0 10px',
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => togglePlayAudio(note.id, note.audio_url)}
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: 'var(--accent-primary)',
+                            color: '#fff',
+                            border: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+                        </button>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            Original Audio Recording (Preserved)
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            {isPlaying ? 'Playing dictation…' : 'Tap to listen to original audio'}
+                          </div>
+                        </div>
+                        <Volume2 size={16} color="var(--text-muted)" />
+                      </div>
                     )}
-                    {matterTitle && (
-                      <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--bg-surface-elevated)', color: 'var(--text-secondary)' }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:3}} aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21H17"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>{matterTitle}
-                      </span>
+
+                    {/* Content / Transcript */}
+                    {isEditing ? (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                          {isVoice ? 'Edit Transcript (Original audio remains preserved):' : 'Edit Note Content:'}
+                        </div>
+                        <textarea
+                          className="input-field"
+                          rows={4}
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          style={{ lineHeight: '26px', fontSize: '0.9rem', marginBottom: 8 }}
+                        />
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={cancelEditing}
+                            className="action-btn"
+                            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                          >
+                            <X size={14} /> Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveEditing(note)}
+                            className="action-btn action-btn-primary"
+                            style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                          >
+                            <Check size={14} /> Save Changes
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{
+                        lineHeight: '26px',
+                        fontSize: '0.9rem',
+                        color: 'var(--text-primary)',
+                        whiteSpace: 'pre-wrap',
+                      }}>
+                        {showingOriginal && note.original_transcript ? (
+                          <div>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-gold, #c8a03c)', marginBottom: 4 }}>
+                              [ORIGINAL UNEDITED TRANSCRIPT]:
+                            </div>
+                            {note.original_transcript}
+                          </div>
+                        ) : (
+                          note.content
+                        )}
+
+                        {/* Version Toggle for Edited Voice Transcripts */}
+                        {isVoice && hasEditedTranscript && (
+                          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                              Transcript edited • Audio intact
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setViewingOriginalTranscriptId(showingOriginal ? null : note.id)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                fontSize: '0.75rem',
+                                color: 'var(--accent-primary)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <History size={12} />
+                              <span>{showingOriginal ? 'Show Edited Transcript' : 'View Original Transcript'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-
-                {/* Content / Transcript */}
-                <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.5, whiteSpace: 'pre-wrap', marginBottom: 10 }}>
-                  {note.content}
-                </p>
-
-                {/* Voice Player (if voice memo) */}
-                {isVoice && note.audio_url && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, backgroundColor: 'var(--bg-app)', padding: '6px 12px', borderRadius: 8, marginBottom: 10 }}>
-                    <button
-                      type="button"
-                      onClick={() => handlePlayVoice(note.id, note.audio_url)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        fontSize: '1.2rem',
-                        cursor: 'pointer',
-                        padding: 0,
-                      }}
-                    >
-                      {playingNoteId === note.id ? (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>) : (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>)}
-                    </button>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {playingNoteId === note.id ? 'Playing audio…' : `Audio Recording (${formatDuration(note.duration_seconds || 0)})`}
-                    </span>
-                  </div>
-                )}
-
-                {/* Action Footer */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
-                  <button
-                    type="button"
-                    onClick={() => deleteUnifiedNote(note.id)}
-                    style={{ background: 'none', border: 'none', color: 'var(--status-danger)', fontSize: '0.78rem', cursor: 'pointer' }}
-                  >
-                    Delete Note
-                  </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-export default function UnifiedNotesPage() {
+export default function DiaryPage() {
   return (
-    <Suspense fallback={<div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading unified notes…</div>}>
+    <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading Advocate Diary…</div>}>
       <UnifiedNotesContent />
     </Suspense>
   );

@@ -7,20 +7,23 @@ import { createServerClient } from '@supabase/ssr';
  *
  * PUBLIC routes (no auth required):
  *   /login
- *   /portal/[token]          — client KYC portal
+ *   /auth/callback           — PKCE code exchange
+ *   /portal/[token]          — client KYC portal (isolated)
  *   /api/portal/*            — portal submission API
- *   /api/translate           — translation (server-side, no sensitive data returned)
+ *   /api/translate           — translation
  *   /access-denied
  *   /icons/*, /manifest.json, /sw.js, /_next/*, /favicon*
  *
  * PROTECTED routes (/app/*):
- *   Require a valid Supabase session with role = 'developer' | 'lawyer'.
- *   Any other session (no user, unknown role) → redirect /login.
- *   Clients have no accounts and therefore can never reach /app/*.
+ *   Requires a valid server-side session with role = 'developer' | 'lawyer'.
+ *   - 'developer': full access to /app/* and /app/admin/*; onboarding bypassed.
+ *   - 'lawyer': access to /app/*; denied /app/admin/*; redirected to /app/onboarding if incomplete.
+ *   - unapproved Google accounts or clients: redirected to /access-denied.
  */
 
 const PUBLIC_PATHS = [
   '/login',
+  '/auth/callback',
   '/access-denied',
   '/portal',
   '/api/portal',
@@ -58,13 +61,43 @@ export async function middleware(request: NextRequest) {
   // All /app/* routes require authentication
   if (pathname.startsWith('/app')) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-anon-key';
+    const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 'placeholder-publishable-key';
 
     const response = NextResponse.next({
       request: { headers: request.headers },
     });
 
-    const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    // Check for dev session cookie (used for local credentials testing when live Supabase is offline)
+    const isLocalPlaceholder =
+      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co';
+
+    if (isLocalPlaceholder) {
+      const devCookie = request.cookies.get('vakildesk_dev_session')?.value;
+      if (devCookie) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(devCookie));
+          const role = parsed.role;
+          if (role === 'developer' || role === 'lawyer') {
+            // Lawyers blocked from developer admin
+            if (role === 'lawyer' && pathname.startsWith('/app/admin')) {
+              return NextResponse.redirect(new URL('/access-denied', request.url));
+            }
+            // Developer skips onboarding
+            if (role === 'developer' && pathname === '/app/onboarding') {
+              return NextResponse.redirect(new URL('/app', request.url));
+            }
+            return response;
+          }
+        } catch {}
+      }
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('next', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Live Supabase Auth verification
+    const supabase = createServerClient(supabaseUrl, supabasePublishableKey, {
       cookies: {
         getAll() {
           return request.cookies.getAll();
@@ -78,30 +111,7 @@ export async function middleware(request: NextRequest) {
       },
     });
 
-    // Local dev fallback when Supabase keys are not configured yet
-    const isLocalPlaceholder =
-      !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co';
-
-    if (isLocalPlaceholder) {
-      const devCookie = request.cookies.get('vakildesk_dev_session')?.value;
-      if (devCookie) {
-        try {
-          const parsed = JSON.parse(decodeURIComponent(devCookie));
-          if (parsed.role === 'developer' || parsed.role === 'lawyer') {
-            if (parsed.role === 'lawyer' && pathname.startsWith('/app/admin')) {
-              return NextResponse.redirect(new URL('/access-denied', request.url));
-            }
-            return response;
-          }
-        } catch {}
-      }
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('next', pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    // getUser() validates the JWT server-side — cannot be spoofed by client
+    // getUser() validates the JWT cryptographically server-side — tamper-proof
     const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error || !user) {
@@ -112,14 +122,28 @@ export async function middleware(request: NextRequest) {
 
     const role = user.app_metadata?.role as string | undefined;
 
-    // Clients have no accounts — this is a belt-and-suspenders check
+    // Unapproved Google accounts or clients -> Access Denied
     if (role !== 'developer' && role !== 'lawyer') {
-      return NextResponse.redirect(new URL('/access-denied', request.url));
+      return NextResponse.redirect(new URL('/access-denied?reason=unauthorized', request.url));
     }
 
     // Lawyers cannot access /app/admin/* (developer-only)
     if (role === 'lawyer' && pathname.startsWith('/app/admin')) {
       return NextResponse.redirect(new URL('/access-denied', request.url));
+    }
+
+    // Developer bypasses onboarding
+    if (role === 'developer' && pathname === '/app/onboarding') {
+      return NextResponse.redirect(new URL('/app', request.url));
+    }
+
+    // Lawyer onboarding enforcement
+    if (role === 'lawyer' && pathname !== '/app/onboarding') {
+      const onboardedCookie = request.cookies.get('vakildesk_onboarding_completed')?.value;
+      const onboardedMeta = user.user_metadata?.onboarding_completed === true;
+      if (!onboardedCookie && !onboardedMeta) {
+        return NextResponse.redirect(new URL('/app/onboarding', request.url));
+      }
     }
 
     return response;
@@ -131,12 +155,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths EXCEPT:
-     * - _next/static (static files)
-     * - _next/image (image optimisation)
-     * - favicon.ico
-     */
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };

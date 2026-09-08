@@ -38,6 +38,7 @@ const clientDirs = [
 
 const secretTokens = [
   'RAZORPAY_KEY_SECRET',
+  'SUPABASE_SECRET_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
   'OPENAI_API_KEY',
   'WHATSAPP_API_KEY',
