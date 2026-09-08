@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.portal_invites (
     status          portal_invite_status NOT NULL DEFAULT 'pending',
     advocate_name   TEXT NOT NULL,
     client_name     TEXT,
-    client_id       UUID REFERENCES public.clients(id) ON DELETE SET NULL,
+    client_id       UUID,
     fee_snapshot    JSONB NOT NULL DEFAULT '[]',
     expires_at      TIMESTAMPTZ NOT NULL,
     revoked_at      TIMESTAMPTZ,
@@ -61,6 +61,21 @@ CREATE TABLE IF NOT EXISTS public.portal_invites (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Safely attach foreign key constraint if public.clients table already exists
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'clients') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.table_constraints 
+            WHERE constraint_name = 'portal_invites_client_id_fkey'
+        ) THEN
+            ALTER TABLE public.portal_invites 
+            ADD CONSTRAINT portal_invites_client_id_fkey 
+            FOREIGN KEY (client_id) REFERENCES public.clients(id) ON DELETE SET NULL;
+        END IF;
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_portal_invites_token ON public.portal_invites(token_hash);
 CREATE INDEX IF NOT EXISTS idx_portal_invites_status ON public.portal_invites(status);
 CREATE INDEX IF NOT EXISTS idx_portal_invites_owner ON public.portal_invites(owner_id);
@@ -68,6 +83,7 @@ CREATE INDEX IF NOT EXISTS idx_portal_invites_owner ON public.portal_invites(own
 ALTER TABLE public.portal_invites ENABLE ROW LEVEL SECURITY;
 
 -- Only the owning advocate can read or manage their invites via client queries
+DROP POLICY IF EXISTS "portal_invites_owner_policy" ON public.portal_invites;
 CREATE POLICY "portal_invites_owner_policy" ON public.portal_invites
     FOR ALL USING (auth.uid() = owner_id)
     WITH CHECK (auth.uid() = owner_id);
@@ -92,17 +108,23 @@ CREATE INDEX IF NOT EXISTS idx_portal_submissions_owner ON public.portal_submiss
 ALTER TABLE public.portal_submissions ENABLE ROW LEVEL SECURITY;
 
 -- Advocates can view KYC submissions belonging to their invites
+DROP POLICY IF EXISTS "portal_submissions_owner_policy" ON public.portal_submissions;
 CREATE POLICY "portal_submissions_owner_policy" ON public.portal_submissions
     FOR SELECT USING (auth.uid() = owner_id);
 
 -- 4. Lawyer Onboarding Columns on Profiles
-ALTER TABLE public.profiles 
-    ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS bar_council_number TEXT,
-    ADD COLUMN IF NOT EXISTS state_bar_council TEXT,
-    ADD COLUMN IF NOT EXISTS chamber_address TEXT,
-    ADD COLUMN IF NOT EXISTS city TEXT,
-    ADD COLUMN IF NOT EXISTS practice_areas TEXT[] DEFAULT '{}';
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles') THEN
+        ALTER TABLE public.profiles 
+            ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS bar_council_number TEXT,
+            ADD COLUMN IF NOT EXISTS state_bar_council TEXT,
+            ADD COLUMN IF NOT EXISTS chamber_address TEXT,
+            ADD COLUMN IF NOT EXISTS city TEXT,
+            ADD COLUMN IF NOT EXISTS practice_areas TEXT[] DEFAULT '{}';
+    END IF;
+END $$;
 
 -- ==============================================================================
 -- NOTE: sync_user_app_metadata_role() trigger function intentionally omitted.
