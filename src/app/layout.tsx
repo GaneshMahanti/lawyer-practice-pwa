@@ -2,8 +2,6 @@ import type { Metadata, Viewport } from 'next';
 import '@/styles/globals.css';
 import { LanguageProvider } from '@/lib/i18n/context';
 import { ThemeProvider } from '@/lib/theme/context';
-import { Header } from '@/components/Header';
-import { BottomNav } from '@/components/BottomNav';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
 
 export const metadata: Metadata = {
@@ -54,11 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ServiceWorkerRegister />
         <ThemeProvider>
           <LanguageProvider>
-            <div className="app-container">
-              <Header />
-              <main className="main-content">{children}</main>
-              <BottomNav />
-            </div>
+            {children}
           </LanguageProvider>
         </ThemeProvider>
       </body>

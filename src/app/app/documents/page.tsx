@@ -212,7 +212,7 @@ function DocumentTranslationContent() {
             setActiveView('translate');
           }}
         >
-          📄 Translate Document
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:6}} aria-hidden="true"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>Translate Document
         </button>
 
         <button
@@ -224,7 +224,7 @@ function DocumentTranslationContent() {
             setActiveView('history');
           }}
         >
-          📚 Saved Memos ({savedDocs.length})
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:6}} aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10"/><path d="M6 10h10"/></svg>Saved Memos ({savedDocs.length})
         </button>
       </div>
 
@@ -329,7 +329,7 @@ function DocumentTranslationContent() {
               marginBottom: 14,
             }}
           >
-            <strong>⚠️ Mandatory Review Notice:</strong> Handwritten Telugu OCR accuracy is significantly lower than printed text. Please carefully review and correct the extracted Telugu text in the field below before finalizing or relying on the translation.
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:5}} aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><strong>Mandatory Review Notice:</strong> Handwritten Telugu OCR accuracy is significantly lower than printed text. Please carefully review and correct the extracted Telugu text in the field below before finalizing or relying on the translation.
           </div>
 
           {/* ── Step 1: Telugu Text Review Area ── */}
@@ -342,10 +342,14 @@ function DocumentTranslationContent() {
                 <button
                   type="button"
                   className="action-btn"
-                  style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                  style={{ fontSize: '0.78rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   onClick={() => speakText(teluguText, 'telugu')}
                 >
-                  {speakingLang === 'telugu' ? '⏸️ Stop' : '🔊 Read Aloud (Telugu)'}
+                  {speakingLang === 'telugu' ? (
+                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Stop</>
+                  ) : (
+                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>Read Aloud (Telugu)</>
+                  )}
                 </button>
               )}
             </div>
@@ -390,10 +394,14 @@ function DocumentTranslationContent() {
                 <button
                   type="button"
                   className="action-btn"
-                  style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                  style={{ fontSize: '0.78rem', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                   onClick={() => speakText(englishText, 'english')}
                 >
-                  {speakingLang === 'english' ? '⏸️ Stop' : '🔊 Read Aloud (English)'}
+                  {speakingLang === 'english' ? (
+                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>Stop</>
+                  ) : (
+                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>Read Aloud (English)</>
+                  )}
                 </button>
               </div>
 
@@ -411,7 +419,7 @@ function DocumentTranslationContent() {
                   lineHeight: 1.4,
                 }}
               >
-                ⚠️ Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:5}} aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.
               </div>
 
               {/* Dual Panel Grid (Side by side on wider screens, stacked on mobile) */}
@@ -442,16 +450,17 @@ function DocumentTranslationContent() {
                 <button
                   type="button"
                   className="action-btn action-btn-primary"
-                  style={{ flex: 1, justifyContent: 'center' }}
+                  style={{ flex: 1, justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                   onClick={handleSaveDocument}
                 >
-                  💾 Save Translated Memo
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Save Translated Memo
                 </button>
               </div>
 
               {saveStatus && (
                 <div style={{ color: 'var(--status-success)', fontSize: '0.82rem', marginTop: 8, textAlign: 'center', fontWeight: 600 }}>
-                  ✓ {saveStatus}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>{saveStatus}
                 </div>
               )}
             </div>

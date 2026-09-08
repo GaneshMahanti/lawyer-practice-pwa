@@ -11,7 +11,7 @@ export function BottomNav() {
 
   const navItems = [
     {
-      href: '/',
+      href: '/app',
       label: t('home'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -21,7 +21,7 @@ export function BottomNav() {
       ),
     },
     {
-      href: '/matters',
+      href: '/app/matters',
       label: t('cases'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -31,7 +31,7 @@ export function BottomNav() {
       ),
     },
     {
-      href: '/clients',
+      href: '/app/clients',
       label: t('clients'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -43,7 +43,7 @@ export function BottomNav() {
       ),
     },
     {
-      href: '/diary',
+      href: '/app/diary',
       label: t('diary'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -54,7 +54,7 @@ export function BottomNav() {
       ),
     },
     {
-      href: '/settings',
+      href: '/app/settings',
       label: t('settings'),
       icon: (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -68,7 +68,9 @@ export function BottomNav() {
   return (
     <nav className="bottom-nav" aria-label="Main Navigation">
       {navItems.map((item) => {
-        const isActive = pathname === item.href;
+        const isActive = item.href === '/app'
+          ? pathname === '/app' || pathname === '/app/'
+          : pathname === item.href || pathname.startsWith(item.href + '/');
         return (
           <Link
             key={item.href}

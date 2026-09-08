@@ -164,7 +164,7 @@ export function createClientInvite(params: InviteClientParams): InviteClientResu
   }
 
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://lawyer-practice-pwa.vercel.app';
-  const registrationUrl = `${origin}/register/${token}`;
+  const registrationUrl = `${origin}/portal/${token}`;
   const totalFeeAmount = createdFees.reduce((acc, f) => acc + f.amount, 0);
 
   return {

@@ -36,6 +36,12 @@ function UnifiedNotesContent() {
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedMatterId, setSelectedMatterId] = useState(matterFilterParam || '');
 
+  // Translate panel
+  const [translateOpen, setTranslateOpen] = React.useState(false);
+  const [translateInput, setTranslateInput] = React.useState('');
+  const [translateResult, setTranslateResult] = React.useState('');
+  const [translating, setTranslating] = React.useState(false);
+
   // Edit State
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
@@ -240,6 +246,106 @@ function UnifiedNotesContent() {
     return m ? `${m.matter_number} - ${m.title}` : null;
   };
 
+
+  // ── Telugu Translation Utility Panel ────────────────────────────────────
+  function TranslatePanel() {
+    const handleTranslate = async () => {
+      if (!translateInput.trim()) return;
+      setTranslating(true);
+      setTranslateResult('');
+      try {
+        const res = await fetch('/api/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ teluguText: translateInput }),
+        });
+        const data = await res.json();
+        setTranslateResult(data.englishText || data.error || 'Translation failed.');
+      } catch {
+        setTranslateResult('Network error. Please try again.');
+      } finally {
+        setTranslating(false);
+      }
+    };
+
+    return (
+      <div className="card" style={{ marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setTranslateOpen((o) => !o)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            color: 'var(--text-primary)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/>
+              <path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>
+            </svg>
+            Telugu Translation
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+            style={{ transform: translateOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+
+        {translateOpen && (
+          <div style={{ marginTop: 14 }}>
+            <label className="input-label">Paste Telugu text to translate</label>
+            <textarea
+              className="input-field"
+              rows={4}
+              placeholder="Type or paste Telugu legal text here…"
+              value={translateInput}
+              onChange={(e) => setTranslateInput(e.target.value)}
+              style={{ fontFamily: "'Noto Sans Telugu', system-ui, sans-serif", fontSize: '0.95rem', lineHeight: 1.6 }}
+            />
+            <button
+              type="button"
+              className="action-btn action-btn-primary"
+              style={{ width: '100%', justifyContent: 'center', marginBottom: translateResult ? 14 : 0 }}
+              disabled={translating || !translateInput.trim()}
+              onClick={handleTranslate}
+            >
+              {translating ? 'Translating…' : 'Translate to English →'}
+            </button>
+
+            {translateResult && (
+              <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: 14 }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', fontWeight: 700 }}>
+                  English Translation:
+                </div>
+                <div style={{ fontSize: '0.9rem', color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                  {translateResult}
+                </div>
+                <button
+                  type="button"
+                  className="action-btn"
+                  style={{ marginTop: 10, fontSize: '0.8rem' }}
+                  onClick={() => {
+                    setTypedBody((prev) => prev ? prev + '\n\n[Translation]\n' + translateResult : '[Translation]\n' + translateResult);
+                    setTranslateOpen(false);
+                  }}
+                >
+                  Append to note
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="section-label">{t('diary')}</div>
@@ -276,7 +382,7 @@ function UnifiedNotesContent() {
                 cursor: 'pointer',
               }}
             >
-              ⌨️ Type
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg> Type
             </button>
             <button
               type="button"
@@ -292,7 +398,7 @@ function UnifiedNotesContent() {
                 cursor: 'pointer',
               }}
             >
-              🎤 Voice
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg> Voice
             </button>
           </div>
         </div>
@@ -397,7 +503,7 @@ function UnifiedNotesContent() {
                         backgroundColor: 'var(--status-danger)',
                         color: '#fff',
                         border: 'none',
-                        fontSize: '1.6rem',
+                        fontSize: '1.6rem', // record button
                         cursor: 'pointer',
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -405,7 +511,7 @@ function UnifiedNotesContent() {
                         boxShadow: '0 4px 12px rgba(239,83,80,0.4)',
                       }}
                     >
-                      🎤
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
                     </button>
                     <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: 10 }}>
                       Tap to record voice note
@@ -470,6 +576,10 @@ function UnifiedNotesContent() {
         </form>
       </div>
 
+
+      {/* ── Telugu Translation Utility ── */}
+      <TranslatePanel />
+
       {/* ── Chronological Feed Filter & Search ── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         <button
@@ -486,7 +596,7 @@ function UnifiedNotesContent() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '6px 0' }}
           onClick={() => setFilterType('text')}
         >
-          ⌨️ Typed ({notes.filter((n) => n.entry_type === 'text').length})
+          Typed ({notes.filter((n) => n.entry_type === 'text').length})
         </button>
         <button
           type="button"
@@ -494,7 +604,7 @@ function UnifiedNotesContent() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '6px 0' }}
           onClick={() => setFilterType('voice')}
         >
-          🎤 Voice ({notes.filter((n) => n.entry_type === 'voice').length})
+          Voice ({notes.filter((n) => n.entry_type === 'voice').length})
         </button>
       </div>
 
@@ -514,7 +624,7 @@ function UnifiedNotesContent() {
       {matterFilterParam && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'var(--bg-surface-elevated)', padding: '8px 12px', borderRadius: 8, marginBottom: 12, fontSize: '0.82rem' }}>
           <span>Filtered for case: <strong>{getMatterTitle(matterFilterParam)}</strong></span>
-          <a href="/diary" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontWeight: 600 }}>
+          <a href="/app/diary" style={{ color: 'var(--accent-primary)', textDecoration: 'none', fontWeight: 600 }}>
             Clear ✕
           </a>
         </div>
@@ -555,7 +665,7 @@ function UnifiedNotesContent() {
                         marginBottom: 4,
                       }}
                     >
-                      {isVoice ? '🎤 Voice Memo' : '⌨️ Typed Note'}
+                      {isVoice ? (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}} aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>Voice Memo</>) : (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}} aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg>Typed Note</>)}
                     </span>
                     <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
                       {note.title}
@@ -572,12 +682,12 @@ function UnifiedNotesContent() {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                     {clientName && (
                       <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--bg-surface-elevated)', color: 'var(--text-secondary)' }}>
-                        👤 {clientName}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:3}} aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{clientName}
                       </span>
                     )}
                     {matterTitle && (
                       <span style={{ fontSize: '0.74rem', padding: '2px 8px', borderRadius: 4, backgroundColor: 'var(--bg-surface-elevated)', color: 'var(--text-secondary)' }}>
-                        ⚖️ {matterTitle}
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:3}} aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21H17"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>{matterTitle}
                       </span>
                     )}
                   </div>
@@ -602,7 +712,7 @@ function UnifiedNotesContent() {
                         padding: 0,
                       }}
                     >
-                      {playingNoteId === note.id ? '⏸️' : '▶️'}
+                      {playingNoteId === note.id ? (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>) : (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>)}
                     </button>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {playingNoteId === note.id ? 'Playing audio…' : `Audio Recording (${formatDuration(note.duration_seconds || 0)})`}

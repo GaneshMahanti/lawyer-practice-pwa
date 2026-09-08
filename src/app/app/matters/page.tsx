@@ -331,7 +331,7 @@ function MattersContent() {
 
                 {/* Court Hierarchy Info */}
                 <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: '8px 10px', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 10 }}>
-                  <div>🏛️ <strong>{m.court_complex || m.court_name}</strong></div>
+                  <div><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="16" height="10" x="4" y="10" rx="1"/><path d="M12 2L2 7h20L12 2z"/><line x1="6" y1="10" x2="6" y2="20"/><line x1="10" y1="10" x2="10" y2="20"/><line x1="14" y1="10" x2="14" y2="20"/><line x1="18" y1="10" x2="18" y2="20"/></svg><strong>{m.court_complex || m.court_name}</strong></div>
                   <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>
                     {m.district}, {m.state || 'Andhra Pradesh'}
                   </div>
@@ -343,7 +343,7 @@ function MattersContent() {
                 {/* Next Hearing Countdown if Active */}
                 {!isDisposed && m.next_hearing_date && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.82rem', color: 'var(--status-warning)', marginBottom: 10, fontWeight: 600 }}>
-                    <span>📅 Next Hearing:</span>
+                    <span style={{display:'inline-flex',alignItems:'center',gap:4}}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></svg>Next Hearing:</span>
                     <span>
                       {new Date(m.next_hearing_date).toLocaleDateString('en-IN', {
                         day: 'numeric',
@@ -357,18 +357,18 @@ function MattersContent() {
                 {/* Disposed Info */}
                 {isDisposed && m.disposal_date && (
                   <div style={{ fontSize: '0.78rem', color: 'var(--status-success)', marginBottom: 10 }}>
-                    ✓ Disposed on {new Date(m.disposal_date).toLocaleDateString('en-IN')} — "{m.final_order_summary}"
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Disposed on {new Date(m.disposal_date).toLocaleDateString('en-IN')} — "{m.final_order_summary}"
                   </div>
                 )}
 
                 {/* Action Buttons */}
                 <div style={{ display: 'flex', gap: 8, paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
                   <Link
-                    href={`/diary?matter=${m.id}`}
+                    href={`/app/diary?matter=${m.id}`}
                     className="action-btn"
                     style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', textDecoration: 'none' }}
                   >
-                    📝 Case Notes
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{marginRight:4}} aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Case Notes
                   </Link>
 
                   {!isDisposed && (

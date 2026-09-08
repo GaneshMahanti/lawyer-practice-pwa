@@ -21,7 +21,7 @@ function isSameDay(a: Date, b: Date) {
 
 export function CalendarView() {
   const today = new Date();
-  const [viewMode, setViewMode] = useState<ViewMode>('month');
+  const [viewMode, setViewMode] = useState<ViewMode>('week');
   const [calMonth, setCalMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1),
   );

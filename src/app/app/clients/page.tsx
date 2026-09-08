@@ -254,14 +254,14 @@ export default function ClientsPage() {
                   {/* Phone numbers */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.86rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span>📞 Phone 1:</span>
+                      <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.23h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Phone 1:</span>
                       <a href={`tel:${c.phone}`} style={{ color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 600 }}>
                         {c.phone}
                       </a>
                     </div>
                     {c.phone_2 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>📱 Phone 2:</span>
+                        <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><line x1="12" x2="12.01" y1="18" y2="18"/></svg>Phone 2:</span>
                         <a href={`tel:${c.phone_2}`} style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
                           {c.phone_2}
                         </a>
@@ -279,7 +279,7 @@ export default function ClientsPage() {
                     </div>
                     {c.current_address && (
                       <div style={{ marginTop: 4, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
-                        📍 {c.current_address}
+                        <span style={{display:'inline-flex',alignItems:'center',gap:4}}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>{c.current_address}</span>
                       </div>
                     )}
                   </div>
@@ -291,7 +291,7 @@ export default function ClientsPage() {
                       className="action-btn"
                       style={{ flex: 1, justifyContent: 'center', padding: '6px 12px', fontSize: '0.82rem', textDecoration: 'none' }}
                     >
-                      📞 Call
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.23h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.29 6.29l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Call
                     </a>
                     <a
                       href={`https://wa.me/91${c.phone.replace(/\D/g, '')}`}
@@ -300,10 +300,10 @@ export default function ClientsPage() {
                       className="action-btn"
                       style={{ flex: 1, justifyContent: 'center', padding: '6px 12px', fontSize: '0.82rem', textDecoration: 'none', color: '#25D366' }}
                     >
-                      💬 WhatsApp
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>WhatsApp
                     </a>
                     <Link
-                      href={`/matters?client=${c.id}`}
+                      href={`/app/matters?client=${c.id}`}
                       className="action-btn action-btn-primary"
                       style={{ flex: 1, justifyContent: 'center', padding: '6px 12px', fontSize: '0.82rem', textDecoration: 'none' }}
                     >
@@ -330,7 +330,7 @@ export default function ClientsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {pendingClients.map((c) => {
                 const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                const regUrl = `${origin}/register/${c.registration_token}`;
+                const regUrl = `${origin}/portal/${c.registration_token}`;
                 const clientFees = fees.filter((f) => f.client_id === c.id);
                 const totalFees = clientFees.reduce((acc, f) => acc + f.amount, 0);
 
@@ -346,7 +346,7 @@ export default function ClientsPage() {
                         </div>
                       </div>
                       <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: 999, backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)', fontWeight: 600 }}>
-                        ⏳ Awaiting KYC
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Awaiting KYC
                       </span>
                     </div>
 
@@ -365,7 +365,7 @@ export default function ClientsPage() {
                         style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem' }}
                         onClick={() => handleCopyInviteUrl(regUrl)}
                       >
-                        📋 Copy Link
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>Copy Link
                       </button>
                       <a
                         href={getWhatsAppShareUrl(regUrl, c.name)}
@@ -374,7 +374,7 @@ export default function ClientsPage() {
                         className="action-btn action-btn-primary"
                         style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', textDecoration: 'none' }}
                       >
-                        💬 Share on WhatsApp
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Share on WhatsApp
                       </a>
                     </div>
                   </div>
@@ -497,7 +497,7 @@ export default function ClientsPage() {
             ) : (
               <div>
                 <div style={{ textAlign: 'center', padding: '12px 0 16px' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🔗</div>
+                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
                   <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
                     Registration Token Generated
                   </div>
@@ -546,7 +546,7 @@ export default function ClientsPage() {
                     className="action-btn action-btn-primary"
                     style={{ justifyContent: 'center', textDecoration: 'none', padding: '12px 16px', fontSize: '0.95rem' }}
                   >
-                    💬 One-Tap Share on WhatsApp
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>One-Tap Share on WhatsApp
                   </a>
 
                   <button
@@ -555,7 +555,7 @@ export default function ClientsPage() {
                     style={{ justifyContent: 'center' }}
                     onClick={() => handleCopyInviteUrl(inviteResult.registrationUrl)}
                   >
-                    {copiedLink ? '✓ Copied Link to Clipboard!' : '📋 Copy Link'}
+                    {copiedLink ? (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Copied!</>) : (<><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>Copy Link</>)}
                   </button>
 
                   <button
