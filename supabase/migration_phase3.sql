@@ -104,23 +104,11 @@ ALTER TABLE public.profiles
     ADD COLUMN IF NOT EXISTS city TEXT,
     ADD COLUMN IF NOT EXISTS practice_areas TEXT[] DEFAULT '{}';
 
--- 5. Helper function for server-side role stamping
-CREATE OR REPLACE FUNCTION public.sync_user_app_metadata_role()
-RETURNS TRIGGER AS $$
-DECLARE
-    matched_role TEXT;
-    is_user_active BOOLEAN;
-BEGIN
-    SELECT role, is_active INTO matched_role, is_user_active
-    FROM public.approved_users
-    WHERE email = NEW.email;
-
-    IF matched_role IS NOT NULL AND is_user_active = true THEN
-        NEW.raw_app_meta_data = COALESCE(NEW.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', matched_role);
-    ELSE
-        NEW.raw_app_meta_data = COALESCE(NEW.raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('role', 'unauthorized');
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- ==============================================================================
+-- NOTE: sync_user_app_metadata_role() trigger function intentionally omitted.
+-- Role stamping is handled exclusively in /src/app/auth/callback/route.ts via
+-- auth.admin.updateUserById() using the privileged SUPABASE_SECRET_KEY.
+-- A SECURITY DEFINER trigger is unnecessary and creates a redundant,
+-- uncontrolled authorization path. The /auth/callback route is the single
+-- source of truth for role assignment and is enforced at every login.
+-- ==============================================================================
