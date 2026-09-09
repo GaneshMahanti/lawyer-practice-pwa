@@ -7,6 +7,7 @@ import {
   loadClients,
   saveClients,
   loadClientFees,
+  saveClientFees,
   createClientInvite,
   type InviteClientResult,
 } from '@/lib/data/repository';
@@ -25,6 +26,7 @@ export default function ClientsPage() {
   const [showDirectAddModal, setShowDirectAddModal] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteClientResult | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   // Invite form fields
   const [inviteName, setInviteName] = useState('');
@@ -66,14 +68,15 @@ export default function ClientsPage() {
 
   const pendingClients = clients.filter((c) => c.status === 'pending');
 
-  const handleGenerateInvite = (e: React.FormEvent) => {
+  const handleGenerateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInviteError(null);
 
     const cFee = parseFloat(consultationFee) || 0;
     const lFee = parseFloat(legalNoticeFee) || 0;
     const csFee = parseFloat(caseFee) || 0;
 
-    const result = createClientInvite({
+    const inviteParams = {
       provisionalName: inviteName.trim() || undefined,
       phone: invitePhone.trim() || undefined,
       fees: {
@@ -81,10 +84,29 @@ export default function ClientsPage() {
         legal_notice: lFee > 0 ? lFee : undefined,
         case_fee: csFee > 0 ? csFee : undefined,
       },
-    });
+    };
 
-    setInviteResult(result);
-    refreshData();
+    try {
+      const response = await fetch('/api/portal/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(inviteParams),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.token || !payload.expiresAt) {
+        throw new Error(payload.error || 'Unable to create the secure invite.');
+      }
+
+      const result = createClientInvite(inviteParams, {
+        token: payload.token,
+        expiresAt: payload.expiresAt,
+      });
+
+      setInviteResult(result);
+      refreshData();
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : 'Unable to create the secure invite.');
+    }
   };
 
   const handleCopyInviteUrl = (url: string) => {
@@ -95,11 +117,33 @@ export default function ClientsPage() {
     }
   };
 
-  const getWhatsAppShareUrl = (url: string, name?: string) => {
+  const getWhatsAppShareUrl = (url: string, name?: string, phone?: string) => {
     const text = name && name !== 'Prospective Client'
       ? `Dear ${name}, please complete your onboarding registration and KYC verification with Advocate representation here: ${url}`
       : `Dear Client, please complete your onboarding registration and KYC verification with Advocate representation here: ${url}`;
-    return `https://wa.me/?text=${encodeURIComponent(text)}`;
+    const digits = (phone || '').replace(/\D/g, '');
+    const recipient = digits.length === 10 ? `91${digits}` : digits;
+    return recipient.length >= 10 && recipient.length <= 15
+      ? `https://wa.me/${recipient}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  };
+
+  const handleDeletePendingInvite = async (client: Client) => {
+    if (!window.confirm(`Delete the pending invite for ${client.name}? Its registration link will stop working.`)) return;
+
+    try {
+      if (client.registration_token) {
+        await fetch('/api/portal/invites', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: client.registration_token }),
+        });
+      }
+    } finally {
+      saveClients(loadClients().filter((entry) => entry.id !== client.id));
+      saveClientFees(loadClientFees().filter((fee) => fee.client_id !== client.id));
+      refreshData();
+    }
   };
 
   const handleDirectAdd = (e: React.FormEvent) => {
@@ -166,6 +210,7 @@ export default function ClientsPage() {
             setConsultationFee('');
             setLegalNoticeFee('');
             setCaseFee('');
+            setInviteError(null);
             setShowInviteModal(true);
           }}
         >
@@ -368,7 +413,7 @@ export default function ClientsPage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>Copy Link
                       </button>
                       <a
-                        href={getWhatsAppShareUrl(regUrl, c.name)}
+                        href={getWhatsAppShareUrl(regUrl, c.name, c.phone)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="action-btn action-btn-primary"
@@ -376,6 +421,15 @@ export default function ClientsPage() {
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Share on WhatsApp
                       </a>
+                      <button
+                        type="button"
+                        className="action-btn"
+                        aria-label={`Delete invite for ${c.name}`}
+                        onClick={() => handleDeletePendingInvite(c)}
+                        style={{ justifyContent: 'center', flex: '0 0 44px', padding: 0, color: 'var(--status-danger)' }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>
+                      </button>
                     </div>
                   </div>
                 );
@@ -442,6 +496,12 @@ export default function ClientsPage() {
                   value={invitePhone}
                   onChange={(e) => setInvitePhone(e.target.value)}
                 />
+
+                {inviteError && (
+                  <p role="alert" style={{ color: 'var(--status-danger)', fontSize: '0.84rem', margin: '8px 0 0' }}>
+                    {inviteError}
+                  </p>
+                )}
 
                 {/* Fees Section */}
                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginTop: 12 }}>
@@ -540,7 +600,7 @@ export default function ClientsPage() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <a
-                    href={getWhatsAppShareUrl(inviteResult.registrationUrl, inviteResult.client.name)}
+                    href={getWhatsAppShareUrl(inviteResult.registrationUrl, inviteResult.client.name, inviteResult.client.phone)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="action-btn action-btn-primary"

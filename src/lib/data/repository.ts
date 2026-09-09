@@ -103,10 +103,13 @@ export interface InviteClientResult {
  * Creates a pending client invite with a long cryptographically random token
  * and records only non-zero fee rows.
  */
-export function createClientInvite(params: InviteClientParams): InviteClientResult {
-  const token = generateCryptographicToken();
+export function createClientInvite(
+  params: InviteClientParams,
+  serverInvite?: { token: string; expiresAt: string },
+): InviteClientResult {
+  const token = serverInvite?.token || generateCryptographicToken();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours
+  const expiresAt = serverInvite ? new Date(serverInvite.expiresAt) : new Date(now.getTime() + 72 * 60 * 60 * 1000); // 72 hours
   const clientId = `cli_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const newClient: Client = {
