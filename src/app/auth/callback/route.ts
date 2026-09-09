@@ -126,7 +126,11 @@ export async function GET(request: NextRequest) {
 
   // Developer bypasses lawyer onboarding
   if (assignedRole === 'developer') {
-    return NextResponse.redirect(new URL('/app', request.url));
+    // Keep the response created before exchangeCodeForSession: it carries the
+    // newly issued Supabase auth cookies. Returning a fresh redirect here
+    // silently drops them and sends the user back to /login.
+    response.headers.set('Location', new URL('/app', request.url).toString());
+    return response;
   }
 
   // Lawyer: check if onboarding has been completed
@@ -138,7 +142,8 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (!profile || profile.onboarding_completed !== true) {
-      return NextResponse.redirect(new URL('/app/onboarding', request.url));
+      response.headers.set('Location', new URL('/app/onboarding', request.url).toString());
+      return response;
     }
   }
 
