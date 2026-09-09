@@ -25,7 +25,10 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code');
   const error = requestUrl.searchParams.get('error');
   const errorDescription = requestUrl.searchParams.get('error_description');
-  const next = requestUrl.searchParams.get('next') || '/app';
+  const requestedNext = requestUrl.searchParams.get('next') || '/app';
+  const next = requestedNext.startsWith('/') && !requestedNext.startsWith('//')
+    ? requestedNext
+    : '/app';
 
   // Handle OAuth provider errors cleanly
   if (error) {
@@ -102,9 +105,23 @@ export async function GET(request: NextRequest) {
 
   // Stamp role in raw_app_meta_data if not already present or out of sync
   if (user.app_metadata?.role !== assignedRole) {
-    await (serviceClient as any).auth.admin.updateUserById(user.id, {
+    const { error: updateError } = await (serviceClient as any).auth.admin.updateUserById(user.id, {
       app_metadata: { ...user.app_metadata, role: assignedRole },
     });
+    if (updateError) {
+      console.error('Unable to assign user role:', updateError);
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+    }
+
+    // The exchanged JWT contains the old app_metadata. Refresh it before the
+    // protected route middleware validates the role claim.
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError || refreshed.user?.app_metadata?.role !== assignedRole) {
+      console.error('Unable to refresh role-bearing session:', refreshError);
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL('/login?error=auth_failed', request.url));
+    }
   }
 
   // Developer bypasses lawyer onboarding

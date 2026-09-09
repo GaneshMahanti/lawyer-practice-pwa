@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Lock, Mail, AlertTriangle } from 'lucide-react';
 
@@ -29,7 +29,6 @@ function GoogleIcon() {
 }
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') || '/app';
   const urlError = searchParams.get('error');
@@ -92,25 +91,8 @@ function LoginForm() {
       const cleanEmail = email.trim().toLowerCase();
       const cleanPass = password;
 
-      // 1. Check Developer credentials
-      if (cleanEmail === 'mahanti9988@gmail.com' && cleanPass === 'Admin@1234') {
-        const sessionPayload = JSON.stringify({ email: 'mahanti9988@gmail.com', role: 'developer' });
-        document.cookie = `vakildesk_dev_session=${encodeURIComponent(sessionPayload)}; path=/; max-age=86400; SameSite=Lax`;
-        router.push(nextPath);
-        router.refresh();
-        return;
-      }
-
-      // 2. Check Lawyer test user credentials
-      if (cleanEmail === 'testuser@gmail.com' && cleanPass === 'Test@1234') {
-        const sessionPayload = JSON.stringify({ email: 'testuser@gmail.com', role: 'lawyer' });
-        document.cookie = `vakildesk_dev_session=${encodeURIComponent(sessionPayload)}; path=/; max-age=86400; SameSite=Lax`;
-        router.push(nextPath);
-        router.refresh();
-        return;
-      }
-
-      // 3. If live Supabase credentials exist, authenticate against Supabase Auth
+      // Password authentication is handled by Supabase Auth. Role authorization
+      // must then happen on the server, never via a browser-set cookie.
       const isPlaceholder = !process.env.NEXT_PUBLIC_SUPABASE_URL ||
         process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co';
 
@@ -118,8 +100,7 @@ function LoginForm() {
         const supabase = createClient();
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password: cleanPass });
         if (!error) {
-          router.push(nextPath);
-          router.refresh();
+          window.location.assign(`/auth/complete?next=${encodeURIComponent(nextPath)}`);
           return;
         }
       }
