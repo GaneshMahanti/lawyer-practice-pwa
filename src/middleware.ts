@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
+import { isAnonymousUser } from '@/lib/supabase/auth';
 
 /**
  * VakilDesk Route Enforcement Middleware.
@@ -28,6 +29,7 @@ const PUBLIC_PATHS = [
   '/portal',
   '/api/portal',
   '/api/translate',
+  '/api/demo',
 ];
 
 const STATIC_PREFIXES = [
@@ -121,6 +123,15 @@ export async function middleware(request: NextRequest) {
     }
 
     const role = user.app_metadata?.role as string | undefined;
+
+    // Anonymous demo sessions may use the app, but never admin or any role
+    // protected server endpoint. Their UUID remains isolated by RLS.
+    if (isAnonymousUser(user)) {
+      if (pathname.startsWith('/app/admin')) {
+        return NextResponse.redirect(new URL('/access-denied?reason=demo_restricted', request.url));
+      }
+      return response;
+    }
 
     // Unapproved Google accounts or clients -> Access Denied
     if (role !== 'developer' && role !== 'lawyer') {

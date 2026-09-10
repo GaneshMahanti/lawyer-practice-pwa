@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { createHash, randomBytes } from 'crypto';
 import { createServerClient } from '@supabase/ssr';
 import { createServiceClient } from '@/lib/supabase/service';
+import { isRealAppUser } from '@/lib/supabase/auth';
 
 type InviteRequest = {
   provisionalName?: unknown;
@@ -35,7 +36,7 @@ async function getAuthenticatedUser(request: NextRequest) {
     },
   });
   const { data: { user }, error } = await supabase.auth.getUser();
-  return error ? null : user;
+  return error || !isRealAppUser(user) ? null : user;
 }
 
 export async function POST(request: NextRequest) {

@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { loadMatters } from '@/lib/data/repository';
+import type { Matter } from '@/lib/types/database';
 
 type ViewMode = 'week' | 'month';
 
@@ -25,6 +27,16 @@ export function CalendarView() {
   const [calMonth, setCalMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1),
   );
+  const [matters, setMatters] = useState<Matter[]>([]);
+
+  useEffect(() => {
+    const refresh = () => setMatters(loadMatters().filter((matter) => matter.status !== 'Disposed/Closed' && matter.next_hearing_date));
+    refresh();
+    window.addEventListener('vakildesk-matters-update', refresh);
+    return () => window.removeEventListener('vakildesk-matters-update', refresh);
+  }, []);
+
+  const hearingCount = (date: Date) => matters.filter((matter) => isSameDay(new Date(matter.next_hearing_date as string), date)).length;
 
   // ── Month Calendar ─────────────────────────────────────────
   const year = calMonth.getFullYear();
@@ -92,7 +104,7 @@ export function CalendarView() {
               <div key={i} className={`week-day-col ${isToday ? 'is-today' : ''}`}>
                 <span className="week-day-name">{WEEK_LABELS[i]}</span>
                 <span className="week-day-num">{d.getDate()}</span>
-                <span className="week-day-dot">–</span>
+                <span className="week-day-dot">{hearingCount(d) ? '•' : '–'}</span>
               </div>
             );
           })}
@@ -145,7 +157,7 @@ export function CalendarView() {
                     .filter(Boolean)
                     .join(' ')}
                 >
-                  {cell.date.getDate()}
+                  {cell.date.getDate()}{hearingCount(cell.date) ? ' •' : ''}
                 </div>
               );
             })}

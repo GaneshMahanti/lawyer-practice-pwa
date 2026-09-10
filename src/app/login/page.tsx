@@ -38,6 +38,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -78,6 +79,22 @@ function LoginForm() {
     } catch {
       setErrorMsg('Google authentication service is currently unavailable.');
       setGoogleLoading(false);
+    }
+  };
+
+  const handleTryDemo = async () => {
+    setErrorMsg(null);
+    setDemoLoading(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInAnonymously();
+      if (error) throw error;
+      const response = await fetch('/api/demo/reset', { method: 'POST' });
+      if (!response.ok) throw new Error('Demo workspace could not be created.');
+      window.location.assign('/app');
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Demo mode is unavailable. Please try again later.');
+      setDemoLoading(false);
     }
   };
 
@@ -172,6 +189,16 @@ function LoginForm() {
       >
         <GoogleIcon />
         <span>{googleLoading ? 'Connecting to Google…' : 'Continue with Google'}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={handleTryDemo}
+        disabled={googleLoading || loading || demoLoading}
+        className="action-btn"
+        style={{ width: '100%', justifyContent: 'center', marginBottom: 20 }}
+      >
+        {demoLoading ? 'Preparing Demo…' : 'Try Demo — Sample Data'}
       </button>
 
       {/* Divider */}

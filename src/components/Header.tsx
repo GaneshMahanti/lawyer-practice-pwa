@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { useLanguage } from '../lib/i18n/context';
 import { useTheme } from '../lib/theme/context';
 import type { SupportedLanguage } from '../lib/types/database';
@@ -48,6 +49,13 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
   const [advocateName, setAdvocateName] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+
+  useEffect(() => {
+    createClient().auth.getUser().then(({ data }) => {
+      setDemoMode(data.user?.is_anonymous === true || data.user?.app_metadata?.provider === 'anonymous');
+    });
+  }, []);
 
   // Read advocate name from localStorage and cookies, and listen for updates
   useEffect(() => {
@@ -94,6 +102,8 @@ export function Header() {
     : 'Advocate';
 
   return (
+    <>
+      {demoMode && <div style={{ background: '#8b5cf6', color: '#fff', textAlign: 'center', fontSize: '0.76rem', fontWeight: 700, padding: '6px 12px' }}>Demo Mode — Sample Data</div>}
     <header className="app-header">
       <div className="header-brand">
         <AdvocateLogo size={30} />
@@ -127,5 +137,6 @@ export function Header() {
         </select>
       </div>
     </header>
+    </>
   );
 }

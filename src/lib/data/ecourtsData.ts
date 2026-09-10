@@ -6,7 +6,7 @@
 
 export const DEFAULT_STATE = 'Andhra Pradesh';
 
-export const CASE_CATEGORIES = ['Civil', 'Crime', 'Family', 'NIA'] as const;
+export const CASE_CATEGORIES = ['Civil', 'Crime', 'Family', 'NIA', 'Consumer', 'Arbitration', 'DRT (Debt)'] as const;
 export type CaseCategory = (typeof CASE_CATEGORIES)[number];
 
 export const DEFAULT_CASE_TYPES: Record<CaseCategory, string[]> = {
@@ -14,6 +14,9 @@ export const DEFAULT_CASE_TYPES: Record<CaseCategory, string[]> = {
   Crime: ['CC (Calendar Case)', 'SC (Sessions Case)', 'Bail Application', 'Crl.MP'],
   Family: ['FCOP (Family Court OP)', 'MC (Maintenance Case)', 'HMOP (Hindu Marriage OP)'],
   NIA: ['NI Act (Sec 138 Cheque Bounce)', 'STC (Summary Trial Case)'],
+  Consumer: ['Consumer Complaint', 'Consumer Appeal', 'Execution Application'],
+  Arbitration: ['Arbitration Petition', 'Section 9 Application', 'Section 34 Challenge'],
+  'DRT (Debt)': ['Original Application', 'Securitisation Application', 'Debt Recovery Appeal'],
 };
 
 /**
