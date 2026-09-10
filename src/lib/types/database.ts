@@ -74,6 +74,7 @@ export interface Client {
   whatsapp_opt_in_at: string | null;
   preferred_language: SupportedLanguage;
   status: ClientStatus;
+  is_practice_active?: boolean;
   registration_token: string | null;
   token_expires_at: string | null;
   aadhaar_last4: string | null; // Masked only: e.g. "1234"
@@ -138,6 +139,7 @@ export interface Booking {
   purpose: string;
   status: BookingStatus;
   notes: string | null;
+  source?: 'manual' | 'matter_hearing';
   created_at: string;
   updated_at: string;
 }

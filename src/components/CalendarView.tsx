@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { loadMatters } from '@/lib/data/repository';
-import type { Matter } from '@/lib/types/database';
+import { loadBookings } from '@/lib/data/repository';
+import type { Booking } from '@/lib/types/database';
 
 type ViewMode = 'week' | 'month';
 
@@ -27,16 +27,22 @@ export function CalendarView() {
   const [calMonth, setCalMonth] = useState(
     new Date(today.getFullYear(), today.getMonth(), 1),
   );
-  const [matters, setMatters] = useState<Matter[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
 
   useEffect(() => {
-    const refresh = () => setMatters(loadMatters().filter((matter) => matter.status !== 'Disposed/Closed' && matter.next_hearing_date));
+    const refresh = () => setBookings(loadBookings().filter((booking) => booking.status === 'scheduled'));
     refresh();
+    window.addEventListener('vakildesk-bookings-update', refresh);
     window.addEventListener('vakildesk-matters-update', refresh);
-    return () => window.removeEventListener('vakildesk-matters-update', refresh);
+    window.addEventListener('vakildesk-workspace-ready', refresh);
+    return () => {
+      window.removeEventListener('vakildesk-bookings-update', refresh);
+      window.removeEventListener('vakildesk-matters-update', refresh);
+      window.removeEventListener('vakildesk-workspace-ready', refresh);
+    };
   }, []);
 
-  const hearingCount = (date: Date) => matters.filter((matter) => isSameDay(new Date(matter.next_hearing_date as string), date)).length;
+  const hearingCount = (date: Date) => bookings.filter((booking) => isSameDay(new Date(booking.start_at), date)).length;
 
   // ── Month Calendar ─────────────────────────────────────────
   const year = calMonth.getFullYear();

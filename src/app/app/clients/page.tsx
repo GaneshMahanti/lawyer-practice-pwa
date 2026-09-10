@@ -10,6 +10,11 @@ import {
   saveClientFees,
   createClientInvite,
   type InviteClientResult,
+  upsertClient,
+  removeClient,
+  createDirectClient,
+  getMattersByClientId,
+  getWorkspaceState,
 } from '@/lib/data/repository';
 import type { Client, ClientFee } from '@/lib/types/database';
 
@@ -19,6 +24,7 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [fees, setFees] = useState<ClientFee[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'pending'>('active');
+  const [practiceFilter, setPracticeFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modal states
@@ -27,6 +33,7 @@ export default function ClientsPage() {
   const [inviteResult, setInviteResult] = useState<InviteClientResult | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
 
   // Invite form fields
   const [inviteName, setInviteName] = useState('');
@@ -58,13 +65,23 @@ export default function ClientsPage() {
   }, []);
 
   // Filter clients
-  const activeClients = clients.filter(
-    (c) =>
-      c.status === 'active' &&
-      (c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.phone.includes(searchQuery) ||
-        (c.case_reference && c.case_reference.toLowerCase().includes(searchQuery.toLowerCase())))
-  );
+  const activeClients = clients.filter((c) => {
+    if (c.status !== 'active') return false;
+    if (practiceFilter === 'active' && c.is_practice_active === false) return false;
+    if (practiceFilter === 'inactive' && c.is_practice_active !== false) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchName = c.name.toLowerCase().includes(q);
+      const matchPhone = c.phone.includes(q);
+      const matchRef = c.case_reference ? c.case_reference.toLowerCase().includes(q) : false;
+      if (!matchName && !matchPhone && !matchRef) return false;
+    }
+    return true;
+  });
+
+  const allActiveCount = clients.filter((c) => c.status === 'active').length;
+  const activePracticeCount = clients.filter((c) => c.status === 'active' && c.is_practice_active !== false).length;
+  const inactivePracticeCount = clients.filter((c) => c.status === 'active' && c.is_practice_active === false).length;
 
   const pendingClients = clients.filter((c) => c.status === 'pending');
 
@@ -97,7 +114,7 @@ export default function ClientsPage() {
         throw new Error(payload.error || 'Unable to create the secure invite.');
       }
 
-      const result = createClientInvite(inviteParams, {
+      const result = await createClientInvite(inviteParams, {
         token: payload.token,
         expiresAt: payload.expiresAt,
       });
@@ -130,23 +147,43 @@ export default function ClientsPage() {
 
   const handleDeletePendingInvite = async (client: Client) => {
     if (!window.confirm(`Delete the pending invite for ${client.name}? Its registration link will stop working.`)) return;
+    setDeletingInviteId(client.id);
+    // Optimistic UI: remove immediately from local state
+    const previousClients = [...clients];
+    setClients((current) => current.filter((c) => c.id !== client.id));
 
     try {
       if (client.registration_token) {
-        await fetch('/api/portal/invites', {
+        const response = await fetch('/api/portal/invites', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: client.registration_token }),
         });
+        if (!response.ok && response.status !== 401) {
+          throw new Error('Server could not revoke invite.');
+        }
       }
-    } finally {
-      saveClients(loadClients().filter((entry) => entry.id !== client.id));
-      saveClientFees(loadClientFees().filter((fee) => fee.client_id !== client.id));
+      await removeClient(client.id);
       refreshData();
+    } catch (error) {
+      // Rollback on failure
+      setClients(previousClients);
+      alert('Could not delete invite. Rolled back.');
+    } finally {
+      setDeletingInviteId(null);
     }
   };
 
-  const handleDirectAdd = (e: React.FormEvent) => {
+  const handleTogglePracticeActive = async (client: Client) => {
+    await upsertClient({
+      ...client,
+      is_practice_active: client.is_practice_active === false,
+      updated_at: new Date().toISOString(),
+    });
+    refreshData();
+  };
+
+  const handleDirectAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!directName.trim() || !directPhone.trim()) return;
 
@@ -154,9 +191,7 @@ export default function ClientsPage() {
     const rawAadhaar = directAadhaar.replace(/\s+/g, '');
     const aadhaar_last4 = rawAadhaar.length >= 4 ? rawAadhaar.slice(-4) : null;
 
-    const newClient: Client = {
-      id: `cli_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      owner_id: 'owner_current',
+    await createDirectClient({
       name: directName.trim(),
       phone: directPhone.trim(),
       phone_2: directPhone2.trim() || null,
@@ -167,18 +202,13 @@ export default function ClientsPage() {
       whatsapp_opt_in_at: new Date().toISOString(),
       preferred_language: 'en',
       status: 'active',
+      is_practice_active: true,
       registration_token: null,
       token_expires_at: null,
       aadhaar_last4,
       current_address: directCurrentAddr.trim() || null,
       permanent_address: directPermAddr.trim() || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const currentList = loadClients();
-    currentList.unshift(newClient);
-    saveClients(currentList);
+    });
 
     // Reset direct add modal
     setDirectName('');
@@ -253,7 +283,7 @@ export default function ClientsPage() {
         </button>
       </div>
 
-      {/* Search Input (for active tab) */}
+      {/* Search & Practice Status Filter (for active tab) */}
       {activeTab === 'active' && (
         <div style={{ marginBottom: 14 }}>
           <input
@@ -262,8 +292,34 @@ export default function ClientsPage() {
             placeholder="Search by name, phone, or case ref…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ margin: 0 }}
+            style={{ margin: '0 0 10px 0' }}
           />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className={`action-btn ${practiceFilter === 'all' ? 'action-btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '6px 8px' }}
+              onClick={() => setPracticeFilter('all')}
+            >
+              All ({allActiveCount})
+            </button>
+            <button
+              type="button"
+              className={`action-btn ${practiceFilter === 'active' ? 'action-btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '6px 8px' }}
+              onClick={() => setPracticeFilter('active')}
+            >
+              Active Practice ({activePracticeCount})
+            </button>
+            <button
+              type="button"
+              className={`action-btn ${practiceFilter === 'inactive' ? 'action-btn-primary' : ''}`}
+              style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '6px 8px' }}
+              onClick={() => setPracticeFilter('inactive')}
+            >
+              Inactive ({inactivePracticeCount})
+            </button>
+          </div>
         </div>
       )}
 
@@ -291,9 +347,18 @@ export default function ClientsPage() {
                         </div>
                       )}
                     </div>
-                    <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: 999, backgroundColor: 'var(--status-success-bg)', color: 'var(--status-success)', fontWeight: 600 }}>
-                      Active
-                    </span>
+                    <label className="toggle-switch" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={c.is_practice_active !== false}
+                        onChange={() => handleTogglePracticeActive(c)}
+                        aria-label={`Toggle active status for ${c.name}`}
+                      />
+                      <span className="toggle-slider" />
+                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: c.is_practice_active === false ? 'var(--text-muted)' : 'var(--status-success)' }}>
+                        {c.is_practice_active === false ? 'Inactive' : 'Active'}
+                      </span>
+                    </label>
                   </div>
 
                   {/* Phone numbers */}
@@ -314,7 +379,6 @@ export default function ClientsPage() {
                     )}
                   </div>
 
-                  {/* KYC & Aadhaar Masking */}
                   <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: '8px 10px', fontSize: '0.8rem', marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                       <span style={{ color: 'var(--text-muted)' }}>Aadhaar (Masked):</span>

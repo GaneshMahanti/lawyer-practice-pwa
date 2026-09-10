@@ -87,11 +87,45 @@ function LoginForm() {
     setDemoLoading(true);
     try {
       const supabase = createClient();
-      const { error } = await supabase.auth.signInAnonymously();
-      if (error) throw error;
-      const response = await fetch('/api/demo/reset', { method: 'POST' });
-      if (!response.ok) throw new Error('Demo workspace could not be created.');
-      window.location.assign('/app');
+      let anonymousSuccess = false;
+
+      // 1. Try native Supabase anonymous sign-in first
+      try {
+        const { error: anonError } = await supabase.auth.signInAnonymously();
+        if (!anonError) {
+          anonymousSuccess = true;
+          const response = await fetch('/api/demo/seed', { method: 'POST' });
+          if (!response.ok) throw new Error('Demo workspace could not be seeded.');
+          window.location.assign('/app');
+          return;
+        }
+      } catch {
+        anonymousSuccess = false;
+      }
+
+      // 2. If anonymous sign-ins are disabled in Supabase dashboard, fall back to isolated demo session
+      if (!anonymousSuccess) {
+        const sessionRes = await fetch('/api/demo/session', { method: 'POST' });
+        const sessionPayload = await sessionRes.json();
+        if (!sessionRes.ok || !sessionPayload.email || !sessionPayload.password) {
+          throw new Error(
+            sessionPayload.error ||
+            'Anonymous Sign-Ins are disabled on this Supabase project. In your Supabase Dashboard: Authentication → Providers → Anonymous → Enable.',
+          );
+        }
+
+        // Sign in client-side to set browser session
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: sessionPayload.email,
+          password: sessionPayload.password,
+        });
+
+        if (signInErr) {
+          throw new Error('Demo login failed. Please try again.');
+        }
+
+        window.location.assign('/app');
+      }
     } catch (error) {
       setErrorMsg(error instanceof Error ? error.message : 'Demo mode is unavailable. Please try again later.');
       setDemoLoading(false);

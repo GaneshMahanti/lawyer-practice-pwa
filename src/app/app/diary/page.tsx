@@ -33,10 +33,7 @@ import {
   History,
 } from 'lucide-react';
 
-type InputMode = 'type' | 'voice';
-
 function UnifiedNotesContent() {
-  const { t } = useLanguage();
   const searchParams = useSearchParams();
   const matterFilterParam = searchParams.get('matter');
 
@@ -47,8 +44,6 @@ function UnifiedNotesContent() {
   // Selected Diary Date (Defaults to Today)
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
-  // Input Mode: 'type' vs 'voice'
-  const [inputMode, setInputMode] = useState<InputMode>('type');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'voice' | 'text'>('all');
 
@@ -204,47 +199,30 @@ function UnifiedNotesContent() {
     setRecordingState('idle');
   };
 
-  // ── Save Voice Entry ────────────────────────────────────────────────────────
-  const handleSaveVoice = () => {
-    if (!audioBlobUrl) return;
+  // ── Unified Save (Written notes & Voice notes together) ─────────────────────
+  const handleSaveEntry = (e: React.FormEvent) => {
+    e.preventDefault();
+    const body = typedBody.trim();
+    if (!body && !audioBlobUrl) return;
 
-    const initialTranscript = typedBody.trim() || 'Voice dictation recorded.';
+    const isVoice = !!audioBlobUrl;
+    const initialContent = body || (isVoice ? 'Voice dictation recorded.' : '');
     createUnifiedNote({
       client_id: selectedClientId || null,
       matter_id: selectedMatterId || null,
-      entry_type: 'voice',
-      title: title.trim() || `Voice Memo (${formattedDayOfWeek})`,
-      content: initialTranscript,
-      transcript: initialTranscript,
-      original_transcript: initialTranscript,
-      audio_url: audioBlobUrl,
-      duration_seconds: durationSec,
+      entry_type: isVoice ? 'voice' : 'text',
+      title: title.trim() || `${isVoice ? 'Voice Memo' : 'Diary Entry'} (${formattedDayOfWeek})`,
+      content: initialContent,
+      transcript: initialContent,
+      original_transcript: initialContent,
+      audio_url: audioBlobUrl || null,
+      duration_seconds: durationSec || null,
       language: 'en',
     });
 
-    // Reset fields
     setTitle('');
     setTypedBody('');
     discardRecording();
-    refreshData();
-  };
-
-  // ── Save Typed Note ─────────────────────────────────────────────────────────
-  const handleSaveTyped = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!typedBody.trim()) return;
-
-    createUnifiedNote({
-      client_id: selectedClientId || null,
-      matter_id: selectedMatterId || null,
-      entry_type: 'text',
-      title: title.trim() || `Diary Entry (${formattedDayOfWeek})`,
-      content: typedBody.trim(),
-      language: 'en',
-    });
-
-    setTitle('');
-    setTypedBody('');
     refreshData();
   };
 
@@ -589,28 +567,6 @@ function UnifiedNotesContent() {
 
         {/* ── Diary Notebook Entry Workspace ── */}
         <div style={{ padding: '16px 20px' }}>
-          {/* Mode Switcher */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-            <button
-              type="button"
-              onClick={() => setInputMode('type')}
-              className={`action-btn ${inputMode === 'type' ? 'action-btn-primary' : ''}`}
-              style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem', gap: 6 }}
-            >
-              <FileText size={16} />
-              <span>Written Entry</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setInputMode('voice')}
-              className={`action-btn ${inputMode === 'voice' ? 'action-btn-primary' : ''}`}
-              style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem', gap: 6 }}
-            >
-              <Mic size={16} />
-              <span>Voice Dictation</span>
-            </button>
-          </div>
-
           {/* Client / Case Selectors */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <select
@@ -647,149 +603,143 @@ function UnifiedNotesContent() {
             placeholder="Docket Title / Court Hearing Reference…"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 10 }}
+            style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 12 }}
           />
 
-          {/* Type Mode */}
-          {inputMode === 'type' && (
-            <form onSubmit={handleSaveTyped}>
-              <div style={{
-                position: 'relative',
-                borderLeft: '2px solid rgba(220, 38, 38, 0.45)',
-                paddingLeft: 12,
-                marginBottom: 12,
-              }}>
-                <textarea
-                  className="input-field"
-                  rows={4}
-                  placeholder="Record today's proceedings, daily case observations, or notes…"
-                  value={typedBody}
-                  onChange={(e) => setTypedBody(e.target.value)}
-                  style={{
-                    lineHeight: '28px',
-                    fontSize: '0.92rem',
-                    background: 'transparent',
-                  }}
-                />
-              </div>
+          {/* Unified Journal Canvas Form */}
+          <form onSubmit={handleSaveEntry}>
+            <div style={{
+              position: 'relative',
+              borderLeft: '2px solid rgba(220, 38, 38, 0.45)',
+              paddingLeft: 12,
+              marginBottom: 12,
+            }}>
+              <textarea
+                className="input-field"
+                rows={5}
+                placeholder="Record today's proceedings, case observations, dictation, or notes…"
+                value={typedBody}
+                onChange={(e) => setTypedBody(e.target.value)}
+                style={{
+                  lineHeight: '28px',
+                  fontSize: '0.92rem',
+                  background: 'transparent',
+                }}
+              />
+            </div>
 
+            {/* Attached Audio Preview (Preserves original audio) */}
+            {audioBlobUrl && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 14px',
+                background: 'var(--bg-surface-elevated)',
+                borderRadius: 12,
+                border: '1px solid var(--border-subtle)',
+                marginBottom: 12,
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                  <Volume2 size={16} color="var(--accent-primary)" />
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Audio Dictation ({formatSec(durationSec)})
+                  </span>
+                  <audio src={audioBlobUrl} controls style={{ height: 32, flex: 1, maxWidth: 220 }} />
+                </div>
+                <button
+                  type="button"
+                  onClick={discardRecording}
+                  className="action-btn"
+                  style={{ padding: '6px 10px', fontSize: '0.78rem', color: 'var(--status-danger)', border: 'none' }}
+                  title="Discard audio"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )}
+
+            {/* Canvas Action Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              {/* Professional Microphone Icon Button */}
+              {recordingState === 'idle' && (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="action-btn"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.84rem',
+                    padding: '8px 14px',
+                    borderColor: 'var(--border-subtle)',
+                  }}
+                  title="Dictate with microphone"
+                >
+                  <Mic size={18} color="var(--status-danger)" />
+                  <span>Dictate Note</span>
+                </button>
+              )}
+
+              {recordingState === 'recording' && (
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className="action-btn"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.84rem',
+                    padding: '8px 14px',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    borderColor: 'var(--status-danger)',
+                    color: 'var(--status-danger)',
+                  }}
+                  title="Stop dictation"
+                >
+                  <Square size={16} />
+                  <span>Stop ({formatSec(durationSec)})</span>
+                </button>
+              )}
+
+              {recordingState === 'recorded' && (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="action-btn"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: '0.84rem',
+                    padding: '8px 12px',
+                  }}
+                  title="Re-record"
+                >
+                  <Mic size={16} />
+                  <span>Re-record</span>
+                </button>
+              )}
+
+              {/* Record in Daily Diary Submit Button */}
               <button
                 type="submit"
                 className="action-btn action-btn-primary"
-                style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem', padding: '10px 0' }}
-                disabled={!typedBody.trim()}
+                style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  fontSize: '0.9rem',
+                  padding: '9px 16px',
+                }}
+                disabled={!typedBody.trim() && !audioBlobUrl}
               >
                 Record in Daily Diary →
               </button>
-            </form>
-          )}
-
-          {/* Voice Dictation Mode */}
-          {inputMode === 'voice' && (
-            <div>
-              <div style={{
-                background: 'var(--bg-surface-elevated)',
-                borderRadius: 14,
-                padding: '16px 14px',
-                textAlign: 'center',
-                marginBottom: 12,
-              }}>
-                {recordingState === 'idle' && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={startRecording}
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: '50%',
-                        background: 'var(--status-danger)',
-                        color: '#fff',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 8px',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
-                      }}
-                    >
-                      <Mic size={24} />
-                    </button>
-                    <div style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
-                      Tap to record voice entry
-                    </div>
-                  </div>
-                )}
-
-                {recordingState === 'recording' && (
-                  <div>
-                    <button
-                      type="button"
-                      onClick={stopRecording}
-                      style={{
-                        width: 56,
-                        height: 56,
-                        borderRadius: '50%',
-                        background: 'var(--status-danger)',
-                        color: '#fff',
-                        border: 'none',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        margin: '0 auto 8px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Square size={20} />
-                    </button>
-                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--status-danger)' }}>
-                      Recording: {formatSec(durationSec)}
-                    </div>
-                  </div>
-                )}
-
-                {recordingState === 'recorded' && (
-                  <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--status-success)', marginBottom: 8 }}>
-                      Dictation recorded ({formatSec(durationSec)})
-                    </div>
-                    <audio src={audioBlobUrl || undefined} controls style={{ width: '100%', height: 36, marginBottom: 8 }} />
-                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                      <button
-                        type="button"
-                        onClick={discardRecording}
-                        className="action-btn"
-                        style={{ fontSize: '0.78rem', color: 'var(--status-danger)' }}
-                      >
-                        <Trash2 size={14} /> Discard
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Optional text or transcript note alongside audio */}
-              <textarea
-                className="input-field"
-                rows={2}
-                placeholder="Add initial notes or keywords for this recording…"
-                value={typedBody}
-                onChange={(e) => setTypedBody(e.target.value)}
-                style={{ fontSize: '0.85rem', marginBottom: 12 }}
-              />
-
-              <button
-                type="button"
-                onClick={handleSaveVoice}
-                className="action-btn action-btn-primary"
-                style={{ width: '100%', justifyContent: 'center', fontSize: '0.9rem', padding: '10px 0' }}
-                disabled={recordingState !== 'recorded'}
-              >
-                Save Voice Entry to Diary →
-              </button>
             </div>
-          )}
+          </form>
         </div>
       </div>
 

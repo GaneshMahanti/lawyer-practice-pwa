@@ -30,6 +30,7 @@ const PUBLIC_PATHS = [
   '/api/portal',
   '/api/translate',
   '/api/demo',
+  '/api/payments/webhook',
 ];
 
 const STATIC_PREFIXES = [

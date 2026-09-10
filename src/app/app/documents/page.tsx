@@ -11,6 +11,7 @@ import {
   loadClients,
   loadMatters,
 } from '@/lib/data/repository';
+import { extractDocumentText } from '@/lib/ocr/localOcr';
 import type { DocumentRecord, Client, Matter } from '@/lib/types/database';
 
 function DocumentTranslationContent() {
@@ -36,6 +37,15 @@ function DocumentTranslationContent() {
   const [translating, setTranslating] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
+  // OCR Workflow states
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [enhancedLoading, setEnhancedLoading] = useState(false);
+  const [ocrMethod, setOcrMethod] = useState<string | null>(null);
+  const [ocrNotice, setOcrNotice] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [enhancedError, setEnhancedError] = useState<string | null>(null);
+
   // TTS states
   const [speakingLang, setSpeakingLang] = useState<'telugu' | 'english' | null>(null);
   const [teluguVoiceNotice, setTeluguVoiceNotice] = useState<string | null>(null);
@@ -58,24 +68,83 @@ function DocumentTranslationContent() {
     ? matters.filter((m) => m.client_id === selectedClientId)
     : matters;
 
-  // Handle image upload and OCR simulation
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // File upload and local-first extraction
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = reader.result as string;
-      setUploadedImagePreview(url);
+    setFileName(file.name);
+    setOcrLoading(true);
+    setOcrNotice(null);
+    setEnhancedError(null);
 
-      // Populate initial OCR text prompt with sample Telugu legal memo
-      if (!teluguText) {
-        setTeluguText(
-          'విశాఖపట్నం జిల్లా న్యాయస్థానంలో దాఖలు చేయబడిన సివిల్ దావా. వాది తరపున న్యాయవాది హాజరు అయి వాయిదా కోరినారు. ప్రతివాదికి నోటీసు జారీ చేయబడినది. తదుపరి విచారణ తేదీన ముద్దాయి హాజరు కావలెను.'
-        );
+    // If image, create preview data URL
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setUploadedImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setUploadedImagePreview(null);
+    }
+
+    try {
+      const res = await extractDocumentText(file);
+      if (res.text) {
+        setTeluguText(res.text);
       }
-    };
-    reader.readAsDataURL(file);
+      setOcrMethod(res.method);
+      if (res.warning) {
+        setOcrNotice(res.warning);
+      }
+    } catch (err) {
+      console.error('Local text extraction failed:', err);
+      setOcrNotice('Notice: Local document reading could not complete. You can type or paste the text directly.');
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  // Trigger Enhanced Server OCR with consent
+  const handleConfirmEnhancedOcr = async () => {
+    if (!uploadedImagePreview) {
+      setEnhancedError('Please upload an image or scan of the document before requesting enhanced OCR.');
+      setShowConsentModal(false);
+      return;
+    }
+
+    setShowConsentModal(false);
+    setEnhancedLoading(true);
+    setEnhancedError(null);
+
+    try {
+      const res = await fetch('/api/ocr/enhanced', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consent: true,
+          matterId: selectedMatterId || null,
+          imageBase64: uploadedImagePreview,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Enhanced OCR request failed');
+      }
+
+      if (data.text) {
+        setTeluguText(data.text);
+        setOcrMethod('enhanced_external');
+        setOcrNotice(data.warning || 'Enhanced OCR draft generated. Always review and verify before translating.');
+      }
+    } catch (err) {
+      console.error('Enhanced OCR error:', err);
+      setEnhancedError(err instanceof Error ? err.message : 'Enhanced OCR failed.');
+    } finally {
+      setEnhancedLoading(false);
+    }
   };
 
   // Sample prefill for demo testing
@@ -295,26 +364,143 @@ function DocumentTranslationContent() {
               </div>
             </div>
 
-            {/* Upload Scanned/Photo Image */}
-            <label className="input-label">Upload Telugu Memo Photo or Scan (Optional)</label>
+            {/* Upload Scanned/Photo Image or PDF */}
+            <label className="input-label">Upload Telugu Document, Memo, or Scan (PDF or Image)</label>
             <input
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf"
               className="input-field"
-              onChange={handleImageUpload}
+              onChange={handleFileUpload}
               style={{ padding: '6px 10px', fontSize: '0.84rem' }}
             />
 
+            {ocrLoading && (
+              <div style={{ fontSize: '0.82rem', color: 'var(--accent-gold)', margin: '6px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite' }} aria-hidden="true"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+                Processing document locally…
+              </div>
+            )}
+
+            {fileName && !ocrLoading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 6, marginBottom: 8 }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  File: <strong>{fileName}</strong>
+                </span>
+                {ocrMethod && (
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      backgroundColor: ocrMethod === 'enhanced_external' ? 'var(--accent-gold-soft, #fef3c7)' : 'var(--bg-surface-elevated)',
+                      color: ocrMethod === 'enhanced_external' ? '#92400e' : 'var(--text-secondary)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {ocrMethod === 'pdf_text' && 'Selectable PDF Text'}
+                    {ocrMethod === 'image_ocr' && 'On-Device OCR'}
+                    {ocrMethod === 'enhanced_external' && 'Enhanced OCR'}
+                    {ocrMethod === 'empty' && 'Text Entry Needed'}
+                  </span>
+                )}
+              </div>
+            )}
+
             {uploadedImagePreview && (
-              <div style={{ marginTop: 8, marginBottom: 10, textAlign: 'center' }}>
-                <img
-                  src={uploadedImagePreview}
-                  alt="Uploaded memo scan"
-                  style={{ maxHeight: 180, maxWidth: '100%', borderRadius: 8, border: '1px solid var(--border-subtle)' }}
-                />
+              <div style={{ marginTop: 8, marginBottom: 10 }}>
+                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                  <img
+                    src={uploadedImagePreview}
+                    alt="Uploaded memo scan"
+                    style={{ maxHeight: 180, maxWidth: '100%', borderRadius: 8, border: '1px solid var(--border-subtle)' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    disabled={enhancedLoading || ocrLoading}
+                    onClick={() => setShowConsentModal(true)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                    {enhancedLoading ? 'Transcribing via Server…' : 'Server Enhanced OCR (Optional)'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {enhancedError && (
+              <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, backgroundColor: 'var(--status-danger-bg)', border: '1px solid var(--status-danger)', color: 'var(--status-danger)', fontSize: '0.8rem' }}>
+                {enhancedError}
+              </div>
+            )}
+
+            {ocrNotice && (
+              <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 6, backgroundColor: 'var(--status-warning-bg)', border: '1px solid var(--status-warning)', color: 'var(--text-primary)', fontSize: '0.8rem', lineHeight: 1.4 }}>
+                {ocrNotice}
               </div>
             )}
           </div>
+
+          {/* Consent Modal for Server Enhanced OCR */}
+          {showConsentModal && (
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000,
+                padding: 16,
+              }}
+            >
+              <div
+                className="card"
+                style={{
+                  maxWidth: 440,
+                  width: '100%',
+                  backgroundColor: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+                }}
+              >
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  Advocate Consent Required
+                </div>
+                <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
+                  You are about to transmit this document scan to the server-side enhanced OCR provider.
+                </p>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', backgroundColor: 'var(--bg-app)', padding: 10, borderRadius: 6, marginBottom: 14 }}>
+                  <p style={{ margin: '0 0 6px 0' }}>• Provider: Secure legal transcription provider (OpenAI Vision API)</p>
+                  <p style={{ margin: '0 0 6px 0' }}>• Audit Logging: Metadata only (Advocate ID, Matter ID, Timestamp, Outcome) will be written to <code>external_ocr_audit</code>.</p>
+                  <p style={{ margin: 0 }}>• Privacy: Document contents and client text are never stored in audit tables.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => setShowConsentModal(false)}
+                    style={{ fontSize: '0.84rem' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="action-btn action-btn-primary"
+                    onClick={handleConfirmEnhancedOcr}
+                    style={{ fontSize: '0.84rem' }}
+                  >
+                    Confirm & Send
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Mandatory Handwritten OCR Accuracy Warning ── */}
           <div

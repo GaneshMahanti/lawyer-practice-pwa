@@ -34,16 +34,18 @@ const TELUGU_LEGAL_TERMS: Record<string, string> = {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { teluguText } = body;
+    const sourceText = typeof body.text === 'string' ? body.text : body.teluguText;
+    const sourceLang = typeof body.source_lang === 'string' ? body.source_lang : 'te';
+    const targetLang = typeof body.target_lang === 'string' ? body.target_lang : 'en';
 
-    if (!teluguText || typeof teluguText !== 'string' || !teluguText.trim()) {
+    if (!sourceText || typeof sourceText !== 'string' || !sourceText.trim()) {
       return NextResponse.json(
-        { error: 'Telugu text is required for translation.' },
+        { error: 'Text is required for translation.' },
         { status: 400 }
       );
     }
 
-    const trimmed = teluguText.trim();
+    const trimmed = sourceText.trim();
 
     // 1. If OPENAI_API_KEY is configured on server, use GPT-4o/GPT-3.5 for high accuracy legal translation
     if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key') {
@@ -60,7 +62,7 @@ export async function POST(request: Request) {
               {
                 role: 'system',
                 content:
-                  'You are a certified legal translator specialized in Indian legal proceedings and Andhra Pradesh court documents. Translate the following Telugu court document/memo into accurate, formal Indian legal English. Preserve legal citations, dates, parties, and court numbers verbatim. Do not add speculative interpretations.',
+                  `You are a certified legal translator specialized in Indian legal proceedings. Translate from ${sourceLang} to ${targetLang}. Preserve citations, dates, parties, and numbers verbatim. Do not add interpretations or silently alter legal text.`,
               },
               { role: 'user', content: trimmed },
             ],
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
             return NextResponse.json({
               success: true,
               translatedText: translation.trim(),
+              translated_text: translation.trim(),
               provider: 'openai',
               disclaimer:
                 'Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.',
@@ -103,6 +106,7 @@ Please review the verified Telugu text on the left panel before submitting forma
     return NextResponse.json({
       success: true,
       translatedText: englishFallback,
+      translated_text: englishFallback,
       provider: 'local_legal_engine',
       disclaimer:
         'Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.',

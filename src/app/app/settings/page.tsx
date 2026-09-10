@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
 import { useTheme } from '@/lib/theme/context';
 import { createClient } from '@/lib/supabase/client';
+import { persistReminderPreferences, loadReminderPreferences } from '@/lib/data/repository';
+import { REMINDER_OFFSET_OPTIONS } from '@/lib/reminders/engine';
 import type { SupportedLanguage } from '@/lib/types/database';
 
 function SunIcon() {
@@ -61,6 +63,8 @@ export default function SettingsPage() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [reminderOffsets, setReminderOffsets] = useState<number[]>([1440, 120]);
+  const [inAppReminders, setInAppReminders] = useState(true);
 
   useEffect(() => {
     try {
@@ -107,6 +111,9 @@ export default function SettingsPage() {
       } catch {}
     };
     checkUser();
+    const prefs = loadReminderPreferences();
+    setReminderOffsets(prefs.offsets_minutes);
+    setInAppReminders(prefs.in_app_enabled);
   }, []);
 
   const handleSave = (e?: React.FormEvent | React.MouseEvent) => {
@@ -200,6 +207,49 @@ export default function SettingsPage() {
             />
             <span className="toggle-slider" />
           </div>
+        </div>
+      </div>
+
+      {/* ── Hearing reminders ── */}
+      <div className="card">
+        <div className="card-title">Hearing reminders</div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem', marginBottom: 12 }}>
+          In-app reminders are generated from court bookings. WhatsApp messages are never sent from Demo Mode and only go to real clients who have opted in.
+        </p>
+        <label className="toggle-switch" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="checkbox"
+            checked={inAppReminders}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setInAppReminders(enabled);
+              void persistReminderPreferences({ offsets_minutes: reminderOffsets, in_app_enabled: enabled });
+            }}
+          />
+          <span className="toggle-slider" />
+          <span style={{ fontSize: '0.88rem' }}>Enable in-app reminders</span>
+        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {REMINDER_OFFSET_OPTIONS.map((option) => {
+            const checked = reminderOffsets.includes(option.minutes);
+            return (
+              <label key={option.minutes} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => {
+                    const next = checked
+                      ? reminderOffsets.filter((value) => value !== option.minutes)
+                      : [...reminderOffsets, option.minutes].sort((a, b) => a - b);
+                    const offsets = next.length ? next : [1440];
+                    setReminderOffsets(offsets);
+                    void persistReminderPreferences({ offsets_minutes: offsets, in_app_enabled: inAppReminders });
+                  }}
+                />
+                {option.label}
+              </label>
+            );
+          })}
         </div>
       </div>
 

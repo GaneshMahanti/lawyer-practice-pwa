@@ -8,6 +8,7 @@ import {
   loadMatters,
   saveMatters,
   createMatter,
+  updateMatterRecord,
   loadClients,
 } from '@/lib/data/repository';
 import {
@@ -32,6 +33,7 @@ function MattersContent() {
   const [matters, setMatters] = useState<Matter[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Disposed'>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Add Case Modal state
@@ -162,22 +164,15 @@ function MattersContent() {
   };
 
   // Handle Disposed/Closed state transition
-  const handleSaveDisposal = (e: React.FormEvent) => {
+  const handleSaveDisposal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!disposalTargetMatter || !disposalDate || !finalOrderSummary.trim()) return;
 
-    const all = loadMatters();
-    const idx = all.findIndex((m) => m.id === disposalTargetMatter.id);
-    if (idx !== -1) {
-      all[idx] = {
-        ...all[idx],
-        status: 'Disposed/Closed',
-        disposal_date: disposalDate,
-        final_order_summary: finalOrderSummary.trim(),
-        updated_at: new Date().toISOString(),
-      };
-      saveMatters(all);
-    }
+    await updateMatterRecord(disposalTargetMatter.id, {
+      status: 'Disposed/Closed',
+      disposal_date: disposalDate,
+      final_order_summary: finalOrderSummary.trim(),
+    });
 
     setShowDisposalModal(false);
     setDisposalTargetMatter(null);
@@ -190,12 +185,16 @@ function MattersContent() {
   const filteredMatters = matters.filter((m) => {
     if (clientFilterParam && m.client_id !== clientFilterParam) return false;
     if (selectedCategoryFilter !== 'All' && m.category !== selectedCategoryFilter) return false;
+    if (statusFilter === 'Active' && m.status === 'Disposed/Closed') return false;
+    if (statusFilter === 'Disposed' && m.status !== 'Disposed/Closed') return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchTitle = m.title.toLowerCase().includes(q);
       const matchNum = m.matter_number.toLowerCase().includes(q);
       const matchCourt = m.court_name.toLowerCase().includes(q);
-      if (!matchTitle && !matchNum && !matchCourt) return false;
+      const client = clients.find((c) => c.id === m.client_id);
+      const matchClient = client ? client.name.toLowerCase().includes(q) : false;
+      if (!matchTitle && !matchNum && !matchCourt && !matchClient) return false;
     }
     return true;
   });
@@ -228,7 +227,7 @@ function MattersContent() {
         </button>
 
         <Link
-          href="/clients"
+          href="/app/clients"
           className="action-btn"
           style={{ justifyContent: 'center', textDecoration: 'none' }}
         >
@@ -236,7 +235,22 @@ function MattersContent() {
         </Link>
       </div>
 
-      {/* Category Filter Pills: All, Civil, Crime, Family, NIA */}
+      {/* Status Filter: All, Active, Disposed */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {(['All', 'Active', 'Disposed'] as const).map((st) => (
+          <button
+            key={st}
+            type="button"
+            className={`action-btn ${statusFilter === st ? 'action-btn-primary' : ''}`}
+            style={{ flex: 1, justifyContent: 'center', fontSize: '0.84rem', padding: '6px 10px' }}
+            onClick={() => setStatusFilter(st)}
+          >
+            {st === 'Disposed' ? 'Disposed/Closed' : st}
+          </button>
+        ))}
+      </div>
+
+      {/* Category Filter Pills: All, Civil, Crime, Family, NIA, Consumer, Arbitration, DRT (Debt) */}
       <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 6, marginBottom: 12 }}>
         {['All', ...CASE_CATEGORIES].map((cat) => (
           <button
