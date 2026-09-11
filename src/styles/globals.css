@@ -89,6 +89,7 @@
   --min-touch-target: 44px;
   --nav-height: 64px;
   --header-height: 60px;
+  --demo-banner-height: 0px;
   --max-content-width: 480px;
   --font-family: 'Inter', 'Noto Sans Devanagari', 'Noto Sans Telugu', system-ui, -apple-system, sans-serif;
 }
@@ -150,7 +151,7 @@ button {
 .main-content {
   flex: 1;
   padding: 14px 14px 0;
-  padding-top: calc(var(--header-height) + 14px);
+  padding-top: calc(var(--demo-banner-height, 0px) + var(--header-height) + 14px);
   padding-bottom: calc(var(--nav-height) + 20px);
   overflow-y: auto;
 }
@@ -160,7 +161,7 @@ button {
    ============================================================================== */
 .app-header {
   position: fixed;
-  top: 0;
+  top: var(--demo-banner-height, 0px);
   left: 0;
   right: 0;
   max-width: var(--max-content-width);

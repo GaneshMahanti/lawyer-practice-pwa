@@ -1,13 +1,37 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getWorkspaceState } from '@/lib/data/workspace';
 
 export function DemoBanner() {
   const isDemo = getWorkspaceState().isDemo;
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!isDemo) return null;
+  const [bannerHeight, setBannerHeight] = useState(0);
+  const bannerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDemo) return;
+    const el = bannerRef.current;
+    if (!el) return;
+    const update = () => {
+      const h = el.getBoundingClientRect().height;
+      setBannerHeight(h);
+      document.documentElement.style.setProperty('--demo-banner-height', `${h}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isDemo]);
+
+  if (!isDemo) {
+    // Remove the CSS var if no banner
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.setProperty('--demo-banner-height', '0px');
+    }
+    return null;
+  }
 
   const reset = async () => {
     setError(null);
@@ -23,28 +47,49 @@ export function DemoBanner() {
   };
 
   return (
-    <div style={{ background: '#5b4b8a', color: '#fff', padding: '8px 12px', fontSize: '0.78rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span>Demo Mode — sample data only. Payments, WhatsApp, portal invites, and admin tools are blocked.</span>
-        <button
-          type="button"
-          onClick={reset}
-          disabled={resetting}
-          style={{
-            background: 'rgba(255,255,255,0.15)',
-            color: '#fff',
-            border: '1px solid rgba(255,255,255,0.35)',
-            borderRadius: 6,
-            padding: '4px 10px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {resetting ? 'Resetting…' : 'Reset sample data'}
-        </button>
+    <>
+      {/* Fixed banner anchored to top */}
+      <div
+        ref={bannerRef}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          maxWidth: 'var(--max-content-width)',
+          margin: '0 auto',
+          background: '#5b4b8a',
+          color: '#fff',
+          padding: '8px 14px',
+          fontSize: '0.78rem',
+          zIndex: 101,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>Demo Mode — sample data only. Payments, WhatsApp, portal invites are blocked.</span>
+          <button
+            type="button"
+            onClick={reset}
+            disabled={resetting}
+            style={{
+              background: 'rgba(255,255,255,0.15)',
+              color: '#fff',
+              border: '1px solid rgba(255,255,255,0.35)',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              fontSize: '0.76rem',
+            }}
+          >
+            {resetting ? 'Resetting…' : 'Reset'}
+          </button>
+        </div>
+        {error && <div style={{ marginTop: 4, fontSize: '0.76rem' }}>{error}</div>}
       </div>
-      {error && <div style={{ marginTop: 6 }}>{error}</div>}
-    </div>
+      {/* Spacer so content below is not hidden behind the fixed banner */}
+      <div style={{ height: bannerHeight }} aria-hidden="true" />
+    </>
   );
 }

@@ -168,7 +168,6 @@ export default function HomePage() {
       <div className="greeting-section">
         <div className="greeting-date">{dateString}</div>
         <div className="greeting-text">{greeting}</div>
-        <div className="greeting-sub">VakilDesk — Legal Practice Management</div>
       </div>
 
       {/* Calendar (Week default / Month toggle) */}
