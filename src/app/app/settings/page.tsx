@@ -229,11 +229,11 @@ export default function SettingsPage() {
           <span className="toggle-slider" />
           <span style={{ fontSize: '0.88rem' }}>Enable in-app reminders</span>
         </label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px 12px' }}>
           {REMINDER_OFFSET_OPTIONS.map((option) => {
             const checked = reminderOffsets.includes(option.minutes);
             return (
-              <label key={option.minutes} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.88rem' }}>
+              <label key={option.minutes} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={checked}

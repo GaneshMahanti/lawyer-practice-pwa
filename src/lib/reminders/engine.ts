@@ -5,9 +5,17 @@ export const REMINDER_OFFSET_OPTIONS = [
   { minutes: 30, label: '30 minutes before' },
   { minutes: 60, label: '1 hour before' },
   { minutes: 120, label: '2 hours before' },
+  { minutes: 240, label: '4 hours before' },
+  { minutes: 480, label: '8 hours before' },
   { minutes: 1440, label: '1 day before' },
   { minutes: 2880, label: '2 days before' },
-  { minutes: 10080, label: '1 week before' },
+  { minutes: 4320, label: '3 days before' },
+  { minutes: 7200, label: '5 days before' },
+  { minutes: 10080, label: '7 days before' },
+  { minutes: 14400, label: '10 days before' },
+  { minutes: 20160, label: '14 days before' },
+  { minutes: 30240, label: '21 days before' },
+  { minutes: 43200, label: '30 days before' },
 ] as const;
 
 export type ReminderPreferences = {

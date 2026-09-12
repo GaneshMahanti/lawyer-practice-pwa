@@ -402,14 +402,16 @@ function UnifiedNotesContent() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                padding: 6,
+                justifyContent: 'center',
+                padding: 8,
+                borderRadius: 8,
               }}
             >
-              <ChevronLeft size={22} />
+              <ChevronLeft size={24} />
             </button>
 
             {/* Big Prominent Date Header */}
-            <div style={{ textAlign: 'center' }}>
+            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div style={{
                 fontSize: '0.76rem',
                 fontWeight: 700,
@@ -426,44 +428,48 @@ function UnifiedNotesContent() {
                   {formattedMonthYear}
                 </span>
               </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               {!isToday && (
                 <button
                   type="button"
                   onClick={handleToday}
                   style={{
-                    fontSize: '0.74rem',
-                    fontWeight: 600,
-                    padding: '4px 8px',
-                    borderRadius: 6,
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '3px 10px',
+                    borderRadius: 12,
                     background: 'var(--accent-primary)',
                     color: '#fff',
                     border: 'none',
                     cursor: 'pointer',
+                    marginTop: 6,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
                 >
-                  Today
+                  Jump to Today
                 </button>
               )}
-              <button
-                type="button"
-                onClick={handleNextDay}
-                aria-label="Next day"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: 6,
-                }}
-              >
-                <ChevronRight size={22} />
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleNextDay}
+              aria-label="Next day"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 8,
+                borderRadius: 8,
+              }}
+            >
+              <ChevronRight size={24} />
+            </button>
           </div>
         </div>
 
@@ -616,14 +622,15 @@ function UnifiedNotesContent() {
             }}>
               <textarea
                 className="input-field"
-                rows={5}
+                rows={8}
                 placeholder="Record today's proceedings, case observations, dictation, or notes…"
                 value={typedBody}
                 onChange={(e) => setTypedBody(e.target.value)}
                 style={{
                   lineHeight: '28px',
-                  fontSize: '0.92rem',
+                  fontSize: '0.94rem',
                   background: 'transparent',
+                  minHeight: 180,
                 }}
               />
             </div>
@@ -745,39 +752,37 @@ function UnifiedNotesContent() {
 
       {/* ── Ruled Lined Notebook Entries Feed ── */}
       <div>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        }}>
-          <div style={{ fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
-            Entries for {formattedDayNum} {formattedMonthYear} ({filteredNotes.length})
+        {filteredNotes.length > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            marginBottom: 10,
+          }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['all', 'text', 'voice'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setFilterType(f)}
+                  style={{
+                    fontSize: '0.74rem',
+                    fontWeight: 600,
+                    padding: '3px 8px',
+                    borderRadius: 12,
+                    border: filterType === f ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                    background: filterType === f ? 'var(--accent-primary)' : 'var(--bg-card)',
+                    color: filterType === f ? '#fff' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
           </div>
-
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(['all', 'text', 'voice'] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilterType(f)}
-                style={{
-                  fontSize: '0.74rem',
-                  fontWeight: 600,
-                  padding: '3px 8px',
-                  borderRadius: 12,
-                  border: filterType === f ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  background: filterType === f ? 'var(--accent-primary)' : 'var(--bg-card)',
-                  color: filterType === f ? '#fff' : 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  textTransform: 'capitalize',
-                }}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {filteredNotes.length === 0 ? (
           <div style={{

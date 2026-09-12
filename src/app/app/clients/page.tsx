@@ -309,7 +309,7 @@ export default function ClientsPage() {
               style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '6px 8px' }}
               onClick={() => setPracticeFilter('active')}
             >
-              Active Practice ({activePracticeCount})
+              Active ({activePracticeCount})
             </button>
             <button
               type="button"
@@ -317,7 +317,7 @@ export default function ClientsPage() {
               style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '6px 8px' }}
               onClick={() => setPracticeFilter('inactive')}
             >
-              Inactive ({inactivePracticeCount})
+              Closed ({inactivePracticeCount})
             </button>
           </div>
         </div>
@@ -347,18 +347,35 @@ export default function ClientsPage() {
                         </div>
                       )}
                     </div>
-                    <label className="toggle-switch" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={c.is_practice_active !== false}
-                        onChange={() => handleTogglePracticeActive(c)}
-                        aria-label={`Toggle active status for ${c.name}`}
+                    <button
+                      type="button"
+                      onClick={() => handleTogglePracticeActive(c)}
+                      aria-label={`Toggle active status for ${c.name}`}
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        borderRadius: 20,
+                        border: c.is_practice_active === false ? '1px solid var(--border-subtle)' : '1px solid rgba(16, 185, 129, 0.35)',
+                        backgroundColor: c.is_practice_active === false ? 'var(--bg-surface-elevated)' : 'rgba(16, 185, 129, 0.12)',
+                        color: c.is_practice_active === false ? 'var(--text-muted)' : 'var(--status-success)',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          backgroundColor: c.is_practice_active === false ? 'var(--text-muted)' : 'var(--status-success)',
+                        }}
                       />
-                      <span className="toggle-slider" />
-                      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: c.is_practice_active === false ? 'var(--text-muted)' : 'var(--status-success)' }}>
-                        {c.is_practice_active === false ? 'Inactive' : 'Active'}
-                      </span>
-                    </label>
+                      {c.is_practice_active === false ? 'Closed' : 'Active'}
+                    </button>
                   </div>
 
                   {/* Phone numbers */}
