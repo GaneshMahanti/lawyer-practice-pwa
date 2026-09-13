@@ -522,26 +522,11 @@ export default function ClientsPage() {
 
       {/* ── Modal: Invite Client Flow ── */}
       {showInviteModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
+        <div className="modal-overlay">
           <div
-            className="card"
+            className="card modal-card"
             style={{
-              width: '100%',
               maxWidth: 440,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              marginBottom: 0,
               position: 'relative',
             }}
           >
@@ -716,26 +701,11 @@ export default function ClientsPage() {
 
       {/* ── Modal: Direct Add Client ── */}
       {showDirectAddModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
+        <div className="modal-overlay">
           <div
-            className="card"
+            className="card modal-card"
             style={{
-              width: '100%',
               maxWidth: 440,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              marginBottom: 0,
               position: 'relative',
             }}
           >

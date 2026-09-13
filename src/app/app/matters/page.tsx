@@ -408,26 +408,11 @@ function MattersContent() {
 
       {/* ── Modal: Add Case (Cascading Hierarchy) ── */}
       {showAddModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
+        <div className="modal-overlay">
           <div
-            className="card"
+            className="card modal-card"
             style={{
-              width: '100%',
               maxWidth: 460,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              marginBottom: 0,
               position: 'relative',
             }}
           >
@@ -686,24 +671,11 @@ function MattersContent() {
 
       {/* ── Modal: Disposed / Closed Enforcement ── */}
       {showDisposalModal && disposalTargetMatter && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(0,0,0,0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
+        <div className="modal-overlay">
           <div
-            className="card"
+            className="card modal-card"
             style={{
-              width: '100%',
               maxWidth: 420,
-              marginBottom: 0,
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>

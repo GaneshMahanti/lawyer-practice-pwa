@@ -88,8 +88,6 @@ export function DemoBanner() {
         </div>
         {error && <div style={{ marginTop: 4, fontSize: '0.76rem' }}>{error}</div>}
       </div>
-      {/* Spacer so content below is not hidden behind the fixed banner */}
-      <div style={{ height: bannerHeight }} aria-hidden="true" />
     </>
   );
 }
