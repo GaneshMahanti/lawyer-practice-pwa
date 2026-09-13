@@ -227,12 +227,6 @@ export default function HomePage() {
         </div>
         <div className="empty-state">{t('noRecentNotes')}</div>
       </div>
-
-      {/* Legal Disclaimer */}
-      <div className="disclaimer-box" role="note">
-        <div className="disclaimer-title">{t('disclaimerTitle')}</div>
-        <div>{t('disclaimerText')}</div>
-      </div>
     </div>
   );
 }

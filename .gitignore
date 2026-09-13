@@ -32,3 +32,11 @@ yarn-error.log*
 
 # Supabase Local
 .supabase/
+
+# Archives & Temporary Assets
+Archive/
+Archive
+images_I_want/
+trash/
+documents/
+

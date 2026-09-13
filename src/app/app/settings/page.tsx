@@ -212,24 +212,23 @@ export default function SettingsPage() {
 
       {/* ── Hearing reminders ── */}
       <div className="card">
-        <div className="card-title">Hearing reminders</div>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem', marginBottom: 12 }}>
-          In-app reminders are generated from court bookings. WhatsApp messages are never sent from Demo Mode and only go to real clients who have opted in.
-        </p>
-        <label className="toggle-switch" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input
-            type="checkbox"
-            checked={inAppReminders}
-            onChange={(e) => {
-              const enabled = e.target.checked;
-              setInAppReminders(enabled);
-              void persistReminderPreferences({ offsets_minutes: reminderOffsets, in_app_enabled: enabled });
-            }}
-          />
-          <span className="toggle-slider" />
-          <span style={{ fontSize: '0.88rem' }}>Enable in-app reminders</span>
-        </label>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px 12px' }}>
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Hearing reminders</span>
+          <label className="toggle-switch" style={{ display: 'flex', alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={inAppReminders}
+              onChange={(e) => {
+                const enabled = e.target.checked;
+                setInAppReminders(enabled);
+                void persistReminderPreferences({ offsets_minutes: reminderOffsets, in_app_enabled: enabled });
+              }}
+              aria-label="Enable hearing reminders"
+            />
+            <span className="toggle-slider" />
+          </label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px 12px', marginTop: 12 }}>
           {REMINDER_OFFSET_OPTIONS.map((option) => {
             const checked = reminderOffsets.includes(option.minutes);
             return (
@@ -374,11 +373,6 @@ export default function SettingsPage() {
           <LogOutIcon />
           <span>{signingOut ? 'Signing out…' : 'Sign Out'}</span>
         </button>
-      </div>
-
-      <div className="disclaimer-box" role="note">
-        <div className="disclaimer-title">{t('disclaimerTitle')}</div>
-        <div>{t('disclaimerText')}</div>
       </div>
     </div>
   );

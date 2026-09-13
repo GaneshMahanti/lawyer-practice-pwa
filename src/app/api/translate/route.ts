@@ -1,12 +1,23 @@
 import { NextResponse } from 'next/server';
 
 /**
- * Server-side Telugu Document OCR & Translation API.
- * API keys (OpenAI / Cloud Vision) are strictly isolated on the server
- * and NEVER exposed to client bundles.
+ * Server side Telugu / Hindi / English translation API.
+ *
+ * Behaviour:
+ *   1. If OPENAI_API_KEY is present, calls GPT 4o mini as a legal translator.
+ *      Returns ONLY the translated text — no wrappers, no notices.
+ *   2. If OPENAI_API_KEY is missing or the OpenAI call errors, returns a
+ *      clear structured error the UI can surface so the advocate knows
+ *      exactly why the translation did not run. We no longer silently
+ *      fall back to a decorative rule based output that gets inserted
+ *      into diary notes.
+ *
+ * All keys stay on the server and are never exposed to the browser bundle.
  */
 
-// Legal terminology dictionary for Andhra Pradesh & Telangana court practice
+// Optional word level fallback dictionary for common legal terms in AP courts.
+// Only used if the caller explicitly asks for `allow_fallback: true` and
+// OpenAI is not available. Never enabled by default.
 const TELUGU_LEGAL_TERMS: Record<string, string> = {
   'న్యాయస్థానం': 'Court of Law',
   'కోర్టు': 'Court',
@@ -31,90 +42,122 @@ const TELUGU_LEGAL_TERMS: Record<string, string> = {
   'జామీను': 'Surety / Bail Bond',
 };
 
+const LANG_LABEL: Record<string, string> = {
+  te: 'Telugu',
+  hi: 'Hindi',
+  en: 'English',
+};
+
 export async function POST(request: Request) {
+  let body: Record<string, unknown> = {};
   try {
-    const body = await request.json();
-    const sourceText = typeof body.text === 'string' ? body.text : body.teluguText;
-    const sourceLang = typeof body.source_lang === 'string' ? body.source_lang : 'te';
-    const targetLang = typeof body.target_lang === 'string' ? body.target_lang : 'en';
-
-    if (!sourceText || typeof sourceText !== 'string' || !sourceText.trim()) {
-      return NextResponse.json(
-        { error: 'Text is required for translation.' },
-        { status: 400 }
-      );
-    }
-
-    const trimmed = sourceText.trim();
-
-    // 1. If OPENAI_API_KEY is configured on server, use GPT-4o/GPT-3.5 for high accuracy legal translation
-    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_openai_api_key') {
-      try {
-        const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content:
-                  `You are a certified legal translator specialized in Indian legal proceedings. Translate from ${sourceLang} to ${targetLang}. Preserve citations, dates, parties, and numbers verbatim. Do not add interpretations or silently alter legal text.`,
-              },
-              { role: 'user', content: trimmed },
-            ],
-            temperature: 0.2,
-          }),
-        });
-
-        if (aiResponse.ok) {
-          const aiJson = await aiResponse.json();
-          const translation = aiJson.choices?.[0]?.message?.content;
-          if (translation) {
-            return NextResponse.json({
-              success: true,
-              translatedText: translation.trim(),
-              translated_text: translation.trim(),
-              provider: 'openai',
-              disclaimer:
-                'Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.',
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('OpenAI translation failed, falling back to rule-based legal translation:', err);
-      }
-    }
-
-    // 2. Rule-based translation fallback for development, offline, or sandbox
-    let translated = trimmed;
-    for (const [tel, eng] of Object.entries(TELUGU_LEGAL_TERMS)) {
-      translated = translated.split(tel).join(eng);
-    }
-
-    // Add contextual legal English translation phrasing
-    const englishFallback = `[Legal Translation of Telugu Document]
-
-Original Subject Matter: ${translated}
-
-Notice: The court memo has been parsed with standardized Andhra Pradesh judicial terms.
-Please review the verified Telugu text on the left panel before submitting formal filings in court.`;
-
-    return NextResponse.json({
-      success: true,
-      translatedText: englishFallback,
-      translated_text: englishFallback,
-      provider: 'local_legal_engine',
-      disclaimer:
-        'Machine-generated translation — refer to the original Telugu text for any legally significant interpretation.',
-    });
+    body = await request.json();
   } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+  }
+
+  const sourceText = typeof body.text === 'string'
+    ? body.text
+    : typeof body.teluguText === 'string'
+    ? body.teluguText
+    : '';
+  const sourceLang = typeof body.source_lang === 'string' ? body.source_lang : 'te';
+  const targetLang = typeof body.target_lang === 'string' ? body.target_lang : 'en';
+  const allowFallback = body.allow_fallback === true;
+
+  if (!sourceText.trim()) {
+    return NextResponse.json({ error: 'Text is required for translation.' }, { status: 400 });
+  }
+
+  const trimmed = sourceText.trim();
+  const fromName = LANG_LABEL[sourceLang] || sourceLang;
+  const toName = LANG_LABEL[targetLang] || targetLang;
+
+  // ── 1. OpenAI (preferred) ────────────────────────────────────────────────
+  const key = process.env.OPENAI_API_KEY;
+  const keyIsSet =
+    !!key &&
+    key.trim().length > 10 &&
+    key !== 'your_openai_api_key' &&
+    key.toLowerCase() !== 'your-openai-api-key';
+
+  if (keyIsSet) {
+    try {
+      const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content:
+                `You are a certified legal translator specialised in Indian court practice. Translate the user's ${fromName} text into ${toName}. Preserve every citation, date, party name, number and section reference verbatim. Return ONLY the translated text. Do not add prefaces, notices, disclaimers, headings, or any other framing.`,
+            },
+            { role: 'user', content: trimmed },
+          ],
+          temperature: 0.2,
+        }),
+      });
+
+      if (aiResponse.ok) {
+        const aiJson = await aiResponse.json();
+        const translation = aiJson.choices?.[0]?.message?.content?.trim();
+        if (translation) {
+          return NextResponse.json({
+            success: true,
+            translatedText: translation,
+            translated_text: translation,
+            provider: 'openai',
+          });
+        }
+        return NextResponse.json(
+          { error: 'OpenAI returned an empty translation. Try a shorter piece of text.' },
+          { status: 502 },
+        );
+      }
+
+      // Surface the actual OpenAI error so the advocate knows why.
+      let providerError = `OpenAI request failed with status ${aiResponse.status}.`;
+      try {
+        const errBody = await aiResponse.json();
+        if (errBody?.error?.message) providerError = `OpenAI: ${errBody.error.message}`;
+      } catch {}
+      console.error('[translate] OpenAI error:', providerError);
+      return NextResponse.json({ error: providerError }, { status: 502 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'OpenAI network error.';
+      console.error('[translate] Network error:', msg);
+      return NextResponse.json({ error: `Could not reach OpenAI: ${msg}` }, { status: 502 });
+    }
+  }
+
+  // ── 2. No key configured. Do NOT invent output. ──────────────────────────
+  if (!allowFallback) {
     return NextResponse.json(
-      { error: 'Internal error processing document translation.' },
-      { status: 500 }
+      {
+        error:
+          'OPENAI_API_KEY is not set on the server. Add it to .env.local and restart the dev server to enable AI translation.',
+        provider: 'none',
+      },
+      { status: 503 },
     );
   }
+
+  // ── 3. Explicit opt in to word level fallback (rarely useful for full sentences) ──
+  let translated = trimmed;
+  for (const [tel, eng] of Object.entries(TELUGU_LEGAL_TERMS)) {
+    translated = translated.split(tel).join(eng);
+  }
+  return NextResponse.json({
+    success: true,
+    translatedText: translated,
+    translated_text: translated,
+    provider: 'dictionary_fallback',
+    warning:
+      'Word level dictionary substitution only. This is not a full sentence translation. Configure OPENAI_API_KEY for accurate translation.',
+  });
 }

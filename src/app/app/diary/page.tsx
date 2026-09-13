@@ -11,6 +11,7 @@ import {
   loadClients,
   loadMatters,
 } from '@/lib/data/repository';
+import { extractDocumentText } from '@/lib/ocr/localOcr';
 import type { DiaryEntry, Client, Matter } from '@/lib/types/database';
 import {
   BookOpen,
@@ -31,6 +32,9 @@ import {
   Volume2,
   Sparkles,
   History,
+  Camera,
+  Type as TypeIcon,
+  Upload,
 } from 'lucide-react';
 
 function UnifiedNotesContent() {
@@ -55,11 +59,20 @@ function UnifiedNotesContent() {
 
   // Translation Panel (inside Diary)
   const [translateOpen, setTranslateOpen] = useState(false);
+  const [translateMode, setTranslateMode] = useState<'text' | 'scan'>('text');
   const [translateSourceLang, setTranslateSourceLang] = useState<'te' | 'hi' | 'en'>('te');
   const [translateTargetLang, setTranslateTargetLang] = useState<'en' | 'te' | 'hi'>('en');
   const [translateInput, setTranslateInput] = useState('');
   const [translateResult, setTranslateResult] = useState('');
   const [translating, setTranslating] = useState(false);
+
+  // Document Scan (Telugu → English) state
+  const [scanFile, setScanFile] = useState<File | null>(null);
+  const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanExtracted, setScanExtracted] = useState('');
+  const [scanWarning, setScanWarning] = useState('');
+  const scanInputRef = useRef<HTMLInputElement | null>(null);
 
   // Edit Note State (Written notes & Voice transcripts)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -298,9 +311,183 @@ function UnifiedNotesContent() {
 
   const appendTranslationToNote = () => {
     if (!translateResult) return;
-    const formatted = `\n\n[Translation (${translateSourceLang.toUpperCase()} → ${translateTargetLang.toUpperCase()})]:\n${translateResult}`;
-    setTypedBody((prev) => (prev ? prev + formatted : translateResult));
+    // Build a clean two block insert: the source text and the translated text,
+    // labelled by human friendly language names. No wrappers, no notices.
+    const langName: Record<string, string> = { te: 'Telugu', hi: 'Hindi', en: 'English' };
+    const fromLabel = langName[translateSourceLang] || translateSourceLang.toUpperCase();
+    const toLabel = langName[translateTargetLang] || translateTargetLang.toUpperCase();
+    // Prefer scanned original if available (scan mode), otherwise the text the user typed.
+    const original = (scanExtracted.trim() || translateInput.trim());
+    const parts: string[] = [];
+    if (original) parts.push(`${fromLabel}:\n${original}`);
+    parts.push(`${toLabel}:\n${translateResult.trim()}`);
+    const block = parts.join('\n\n');
+    setTypedBody((prev) => (prev ? `${prev}\n\n${block}` : block));
     setTranslateOpen(false);
+  };
+
+  // ── Document Scan → OCR → Translate ────────────────────────────────────────
+  const resetScan = () => {
+    if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+    setScanFile(null);
+    setScanPreviewUrl(null);
+    setScanExtracted('');
+    setScanWarning('');
+    setTranslateResult('');
+    if (scanInputRef.current) scanInputRef.current.value = '';
+  };
+
+  const handleScanPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+    setScanFile(file);
+    setScanPreviewUrl(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
+    setScanExtracted('');
+    setScanWarning('');
+    setTranslateResult('');
+  };
+
+  // Read a File into a data URL — used to send scanned pages to the server
+  // enhanced OCR route when on-device OCR can't read the image (typical on
+  // desktop Chrome / Safari, where TextDetector API is unavailable).
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Could not read file.'));
+      reader.readAsDataURL(file);
+    });
+
+  const runEnhancedServerOcr = async (
+    file: File,
+  ): Promise<{ text: string; warning?: string } | { text: ''; error: string }> => {
+    if (!file.type.startsWith('image/')) {
+      return { text: '', error: 'Enhanced OCR supports image files (JPG/PNG/HEIC). For PDFs, export pages as images first.' };
+    }
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const res = await fetch('/api/ocr/enhanced', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consent: true,
+          imageBase64: dataUrl,
+          matterId: selectedMatterId || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.status === 403) {
+        return { text: '', error: 'Enhanced OCR is not available in Demo Mode. Sign in as an approved advocate to scan documents on desktop.' };
+      }
+      if (res.status === 503) {
+        return { text: '', error: 'Enhanced OCR is not configured on this server. Add OPENAI_API_KEY to .env.local and restart the app.' };
+      }
+      if (!res.ok || !data.text) {
+        return { text: '', error: data.error || 'Enhanced OCR could not extract text from this image.' };
+      }
+      return { text: String(data.text).trim(), warning: data.warning };
+    } catch (err) {
+      return { text: '', error: err instanceof Error ? err.message : 'Enhanced OCR failed.' };
+    }
+  };
+
+  const handleScanAndTranslate = async () => {
+    if (!scanFile) return;
+    setScanning(true);
+    setScanWarning('');
+    setTranslateResult('');
+    try {
+      // 1. Try on-device OCR first — free, works offline, keeps document local.
+      const ocr = await extractDocumentText(scanFile);
+      let extracted = (ocr.text || '').trim();
+      let ocrNotice = ocr.warning || '';
+      let usedServer = false;
+
+      // 2. If on-device extraction returned nothing (typical on desktop
+      //    browsers without TextDetector), fall back to server OCR.
+      if (!extracted) {
+        const serverResult = await runEnhancedServerOcr(scanFile);
+        if (serverResult.text) {
+          extracted = serverResult.text;
+          usedServer = true;
+          ocrNotice = ('warning' in serverResult && serverResult.warning)
+            ? serverResult.warning
+            : 'Extracted using enhanced server OCR — the image was sent to the OpenAI Vision service for processing.';
+        } else if ('error' in serverResult && serverResult.error) {
+          setScanExtracted('');
+          setScanWarning(
+            (ocr.warning ? ocr.warning + ' ' : '')
+              + serverResult.error,
+          );
+          return;
+        }
+      }
+
+      setScanExtracted(extracted);
+      if (ocrNotice) setScanWarning(ocrNotice);
+
+      if (!extracted) {
+        setScanWarning(
+          ocr.warning
+            || 'No text could be extracted from this document. Try a clearer photo, or type the text.',
+        );
+        return;
+      }
+
+      // 3. Auto-translate the extracted text
+      setTranslating(true);
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: extracted,
+          source_lang: translateSourceLang,
+          target_lang: translateTargetLang,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.translated_text) {
+        setTranslateResult(data.translated_text);
+      } else {
+        setTranslateResult(data.error || 'Translation failed.');
+      }
+      if (usedServer && !scanWarning) {
+        setScanWarning('Extracted using enhanced server OCR — the image was sent to the OpenAI Vision service for processing.');
+      }
+    } catch (err) {
+      setScanWarning(err instanceof Error ? err.message : 'Scan failed. Please try again.');
+    } finally {
+      setScanning(false);
+      setTranslating(false);
+    }
+  };
+
+  const translateExtractedText = async () => {
+    if (!scanExtracted.trim()) return;
+    setTranslating(true);
+    setTranslateResult('');
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: scanExtracted.trim(),
+          source_lang: translateSourceLang,
+          target_lang: translateTargetLang,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.translated_text) {
+        setTranslateResult(data.translated_text);
+      } else {
+        setTranslateResult(data.error || 'Translation failed.');
+      }
+    } catch {
+      setTranslateResult('Translation service unavailable.');
+    } finally {
+      setTranslating(false);
+    }
   };
 
   // ── Audio Playback ──────────────────────────────────────────────────────────
@@ -494,6 +681,91 @@ function UnifiedNotesContent() {
               </button>
             </div>
 
+            {/* Mode toggle: Type text vs Scan a document. Made prominent so both
+                input methods are obviously available at a glance. */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: 'var(--text-muted)',
+                marginBottom: 6,
+              }}>
+                Choose input method
+              </div>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setTranslateMode('text')}
+                  aria-pressed={translateMode === 'text'}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '14px 10px',
+                    borderRadius: 12,
+                    cursor: 'pointer',
+                    border: translateMode === 'text'
+                      ? '2px solid var(--accent-primary)'
+                      : '2px solid var(--border-subtle)',
+                    background: translateMode === 'text'
+                      ? 'var(--accent-primary-dim)'
+                      : 'var(--bg-app)',
+                    color: translateMode === 'text'
+                      ? 'var(--accent-primary)'
+                      : 'var(--text-primary)',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <TypeIcon size={22} />
+                  <span>Type Text</span>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                    Paste or type
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTranslateMode('scan')}
+                  aria-pressed={translateMode === 'scan'}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '14px 10px',
+                    borderRadius: 12,
+                    cursor: 'pointer',
+                    border: translateMode === 'scan'
+                      ? '2px solid var(--accent-primary)'
+                      : '2px solid var(--border-subtle)',
+                    background: translateMode === 'scan'
+                      ? 'var(--accent-primary-dim)'
+                      : 'var(--bg-app)',
+                    color: translateMode === 'scan'
+                      ? 'var(--accent-primary)'
+                      : 'var(--text-primary)',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Camera size={22} />
+                  <span>Scan Document</span>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+                    Photo or PDF
+                  </span>
+                </button>
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
               <div>
                 <label className="input-label" style={{ fontSize: '0.75rem' }}>From Language</label>
@@ -523,36 +795,185 @@ function UnifiedNotesContent() {
               </div>
             </div>
 
-            <textarea
-              className="input-field"
-              rows={2}
-              placeholder="Enter text to translate…"
-              value={translateInput}
-              onChange={(e) => setTranslateInput(e.target.value)}
-              style={{ fontSize: '0.85rem', marginBottom: 8 }}
-            />
+            {/* ── Mode: Type text ── */}
+            {translateMode === 'text' && (
+              <>
+                <textarea
+                  className="input-field"
+                  rows={3}
+                  placeholder="Enter text to translate…"
+                  value={translateInput}
+                  onChange={(e) => setTranslateInput(e.target.value)}
+                  style={{ fontSize: '0.85rem', marginBottom: 8 }}
+                />
 
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                onClick={handleTranslate}
-                className="action-btn action-btn-primary"
-                style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '8px 12px' }}
-                disabled={translating || !translateInput.trim()}
-              >
-                {translating ? 'Translating…' : 'Translate Text'}
-              </button>
-              {translateResult && (
-                <button
-                  type="button"
-                  onClick={appendTranslationToNote}
-                  className="action-btn"
-                  style={{ fontSize: '0.82rem', padding: '8px 12px' }}
-                >
-                  Insert into Note ↓
-                </button>
-              )}
-            </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleTranslate}
+                    className="action-btn action-btn-primary"
+                    style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '8px 12px' }}
+                    disabled={translating || !translateInput.trim()}
+                  >
+                    {translating ? 'Translating…' : 'Translate Text'}
+                  </button>
+                  {translateResult && (
+                    <button
+                      type="button"
+                      onClick={appendTranslationToNote}
+                      className="action-btn"
+                      style={{ fontSize: '0.82rem', padding: '8px 12px' }}
+                    >
+                      Insert into Note ↓
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* ── Mode: Scan document ── */}
+            {translateMode === 'scan' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <input
+                  ref={scanInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  capture="environment"
+                  onChange={handleScanPick}
+                  style={{ display: 'none' }}
+                />
+
+                {!scanFile ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => scanInputRef.current?.click()}
+                      className="action-btn"
+                      style={{
+                        justifyContent: 'center',
+                        fontSize: '0.85rem',
+                        padding: '18px 12px',
+                        gap: 8,
+                        border: '1px dashed var(--border-strong)',
+                        background: 'var(--bg-app)',
+                      }}
+                    >
+                      <Upload size={16} />
+                      <span>Take a photo or upload a Telugu document</span>
+                    </button>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
+                      Scans first try on-device OCR (private, works offline). If your browser
+                      can&apos;t read the image, the app falls back to secure server OCR (OpenAI
+                      Vision) — this requires <code>OPENAI_API_KEY</code> in <code>.env.local</code>
+                      and only works when signed in as an approved advocate.
+                    </p>
+                  </>
+                ) : (
+                  <div style={{
+                    padding: 10,
+                    borderRadius: 10,
+                    background: 'var(--bg-app)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}>
+                    {scanPreviewUrl ? (
+                      <img
+                        src={scanPreviewUrl}
+                        alt="Scanned document preview"
+                        style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: 56, height: 56, borderRadius: 6, background: 'var(--bg-surface-elevated)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                      }}>
+                        <FileText size={22} color="var(--text-muted)" />
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {scanFile.name}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                        {(scanFile.size / 1024).toFixed(0)} KB
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetScan}
+                      title="Remove"
+                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleScanAndTranslate}
+                    className="action-btn action-btn-primary"
+                    style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', padding: '8px 12px' }}
+                    disabled={!scanFile || scanning || translating}
+                  >
+                    {scanning ? 'Scanning…' : translating ? 'Translating…' : 'Extract & Translate'}
+                  </button>
+                  {translateResult && (
+                    <button
+                      type="button"
+                      onClick={appendTranslationToNote}
+                      className="action-btn"
+                      style={{ fontSize: '0.82rem', padding: '8px 12px' }}
+                    >
+                      Insert into Note ↓
+                    </button>
+                  )}
+                </div>
+
+                {scanWarning && (
+                  <div style={{
+                    padding: '8px 10px',
+                    borderRadius: 8,
+                    background: 'rgba(255, 213, 79, 0.12)',
+                    border: '1px solid rgba(255, 213, 79, 0.25)',
+                    color: 'var(--status-warning, #b8860b)',
+                    fontSize: '0.76rem',
+                    lineHeight: 1.4,
+                  }}>
+                    {scanWarning}
+                  </div>
+                )}
+
+                {scanExtracted && (
+                  <div>
+                    <label className="input-label" style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span>Extracted original text (editable)</span>
+                      <button
+                        type="button"
+                        onClick={translateExtractedText}
+                        disabled={translating}
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--accent-primary)',
+                          fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', padding: 0,
+                        }}
+                      >
+                        {translating ? 'Re-translating…' : 'Re-translate'}
+                      </button>
+                    </label>
+                    <textarea
+                      className="input-field"
+                      rows={4}
+                      value={scanExtracted}
+                      onChange={(e) => setScanExtracted(e.target.value)}
+                      style={{ fontSize: '0.85rem' }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             {translateResult && (
               <div style={{
@@ -563,8 +984,11 @@ function UnifiedNotesContent() {
                 border: '1px solid var(--border-subtle)',
                 fontSize: '0.85rem',
                 lineHeight: 1.4,
+                whiteSpace: 'pre-wrap',
               }}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>Translation Result:</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Translation Result ({translateTargetLang.toUpperCase()}):
+                </div>
                 {translateResult}
               </div>
             )}
@@ -622,17 +1046,71 @@ function UnifiedNotesContent() {
             }}>
               <textarea
                 className="input-field"
-                rows={8}
-                placeholder="Record today's proceedings, case observations, dictation, or notes…"
+                rows={14}
+                placeholder="Write today's proceedings, case observations, ideas, or paste anything you want to save. Tap the mic to dictate."
                 value={typedBody}
-                onChange={(e) => setTypedBody(e.target.value)}
+                onChange={(e) => {
+                  setTypedBody(e.target.value);
+                  // Auto-grow the canvas as you type (never shrinks below its base height)
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = Math.max(el.scrollHeight, 380) + 'px';
+                }}
                 style={{
                   lineHeight: '28px',
-                  fontSize: '0.94rem',
+                  fontSize: '0.95rem',
                   background: 'transparent',
-                  minHeight: 180,
+                  paddingRight: 48,
+                  minHeight: 380,
+                  resize: 'vertical',
                 }}
               />
+
+              {/* Dictate mic — anchored to the top-right of the canvas for quick access while writing */}
+              <button
+                type="button"
+                onClick={recordingState === 'recording' ? stopRecording : startRecording}
+                title={
+                  recordingState === 'recording'
+                    ? `Stop dictation (${formatSec(durationSec)})`
+                    : recordingState === 'recorded'
+                    ? 'Re-record'
+                    : 'Dictate with microphone'
+                }
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: recordingState === 'recording' ? '1px solid var(--status-danger)' : '1px solid var(--border-subtle)',
+                  background: recordingState === 'recording' ? 'rgba(239, 68, 68, 0.12)' : 'var(--bg-surface-elevated)',
+                  color: recordingState === 'recording' ? 'var(--status-danger)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                {recordingState === 'recording' ? <Square size={15} /> : <Mic size={17} color="var(--status-danger)" />}
+              </button>
+
+              {recordingState === 'recording' && (
+                <div style={{
+                  position: 'absolute',
+                  top: 46,
+                  right: 8,
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  color: 'var(--status-danger)',
+                  background: 'var(--bg-surface-elevated)',
+                  borderRadius: 8,
+                  padding: '2px 6px',
+                }}>
+                  {formatSec(durationSec)}
+                </div>
+              )}
             </div>
 
             {/* Attached Audio Preview (Preserves original audio) */}
@@ -667,71 +1145,8 @@ function UnifiedNotesContent() {
               </div>
             )}
 
-            {/* Canvas Action Bar */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              {/* Professional Microphone Icon Button */}
-              {recordingState === 'idle' && (
-                <button
-                  type="button"
-                  onClick={startRecording}
-                  className="action-btn"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: '0.84rem',
-                    padding: '8px 14px',
-                    borderColor: 'var(--border-subtle)',
-                  }}
-                  title="Dictate with microphone"
-                >
-                  <Mic size={18} color="var(--status-danger)" />
-                  <span>Dictate Note</span>
-                </button>
-              )}
-
-              {recordingState === 'recording' && (
-                <button
-                  type="button"
-                  onClick={stopRecording}
-                  className="action-btn"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: '0.84rem',
-                    padding: '8px 14px',
-                    background: 'rgba(239, 68, 68, 0.12)',
-                    borderColor: 'var(--status-danger)',
-                    color: 'var(--status-danger)',
-                  }}
-                  title="Stop dictation"
-                >
-                  <Square size={16} />
-                  <span>Stop ({formatSec(durationSec)})</span>
-                </button>
-              )}
-
-              {recordingState === 'recorded' && (
-                <button
-                  type="button"
-                  onClick={startRecording}
-                  className="action-btn"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: '0.84rem',
-                    padding: '8px 12px',
-                  }}
-                  title="Re-record"
-                >
-                  <Mic size={16} />
-                  <span>Re-record</span>
-                </button>
-              )}
-
-              {/* Record in Daily Diary Submit Button */}
+            {/* Save button — dictation now lives on the canvas above */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button
                 type="submit"
                 className="action-btn action-btn-primary"
