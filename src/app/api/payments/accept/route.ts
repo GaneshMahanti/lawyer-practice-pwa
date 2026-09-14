@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { requireRealAppUser } from '@/lib/auth/requestUser';
+import { requireRealAppUser, requireWorkspaceUser } from '@/lib/auth/requestUser';
 import { createServiceClient } from '@/lib/supabase/service';
 
 interface AcceptPaymentRequest {
@@ -10,7 +10,7 @@ interface AcceptPaymentRequest {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await requireRealAppUser(request);
+  const user = (await requireRealAppUser(request)) || (await requireWorkspaceUser(request));
   if (!user) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
   }
@@ -74,7 +74,12 @@ export async function POST(request: NextRequest) {
 
     // Prevent duplicate processing if already completed
     if (invite && invite.status === 'completed' && client.status === 'active') {
-      return NextResponse.json({ error: 'Payment has already been recorded and client is active.' }, { status: 409 });
+      return NextResponse.json({
+        success: true,
+        alreadyProcessed: true,
+        clientId: client.id,
+        message: 'Payment has already been recorded and client is active.'
+      });
     }
 
     // 3. Compute payment amount

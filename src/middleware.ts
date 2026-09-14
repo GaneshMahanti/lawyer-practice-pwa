@@ -61,6 +61,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // API routes: let them reach their route handlers directly
+  // Route handlers perform their own authentication and return JSON responses (never HTML redirects)
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.next();
+  }
+
   // All /app/* routes require authentication
   if (pathname.startsWith('/app')) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
