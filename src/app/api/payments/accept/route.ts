@@ -186,8 +186,8 @@ export async function POST(request: NextRequest) {
       .insert({
         id: crypto.randomUUID(),
         owner_id: user.id,
-        action: 'client_payment_accepted',
-        resource_type: 'payment',
+        action: 'payment.manual_accepted',
+        resource_type: 'client',
         resource_id: client.id,
         metadata_json: {
           lawyer_id: user.id,

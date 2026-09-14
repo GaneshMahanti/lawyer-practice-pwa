@@ -221,9 +221,16 @@ export default function ClientsPage() {
         }),
       });
 
-      const data = await res.json();
+      // Safely parse response — empty body from a server error must not itself crash the handler
+      let data: Record<string, any> = {};
+      try {
+        data = await res.json();
+      } catch {
+        // empty or non-JSON body — treat as unknown server error
+      }
+
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to record payment.');
+        throw new Error(data.error || `Server error (${res.status}). Please try again.`);
       }
 
       await markClientPaymentCompleted(selectedPendingClient.id);

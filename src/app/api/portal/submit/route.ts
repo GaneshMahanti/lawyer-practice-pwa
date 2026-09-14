@@ -274,8 +274,8 @@ export async function POST(request: NextRequest) {
             id: crypto.randomUUID(),
             owner_id: invite.owner_id,
             action: 'payment.portal_auto_verified',
-            entity_name: 'client_payments',
-            entity_id: targetClientId,
+            resource_type: 'client',
+            resource_id: targetClientId,
             metadata_json: {
               lawyer_id: invite.owner_id,
               client_id: targetClientId,
@@ -284,6 +284,7 @@ export async function POST(request: NextRequest) {
               method: payMethod,
               timestamp: nowIso,
             },
+            outcome: 'success',
             created_at: nowIso,
           });
       }
