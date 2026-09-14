@@ -8,6 +8,7 @@ import { isRealAppUser } from '@/lib/supabase/auth';
 type InviteRequest = {
   clientId?: unknown;
   provisionalName?: unknown;
+  paymentMode?: 'cash' | 'upi' | 'razorpay';
   fees?: {
     consultation?: unknown;
     legal_notice?: unknown;
@@ -15,12 +16,13 @@ type InviteRequest = {
   };
 };
 
-function feeSnapshot(fees: InviteRequest['fees']) {
+function feeSnapshot(fees: InviteRequest['fees'], paymentMode?: 'cash' | 'upi' | 'razorpay') {
   const feeTypes = ['consultation', 'legal_notice', 'case_fee'] as const;
+  const mode = paymentMode === 'cash' ? 'cash' : paymentMode === 'razorpay' ? 'razorpay' : 'upi';
   return feeTypes.flatMap((fee_type) => {
     const amount = Number(fees?.[fee_type] || 0);
     return Number.isFinite(amount) && amount > 0
-      ? [{ fee_type, amount, razorpay_link_url: null }]
+      ? [{ fee_type, amount, razorpay_link_url: null, payment_mode: mode }]
       : [];
   });
 }
@@ -73,7 +75,20 @@ export async function POST(request: NextRequest) {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
     const service = createServiceClient() as any;
-    const clientId = typeof body.clientId === 'string' && body.clientId.length > 10 ? body.clientId : null;
+
+    // Validate if clientId actually exists in public.clients before inserting foreign key
+    let validClientId: string | null = null;
+    if (typeof body.clientId === 'string' && body.clientId.length > 10) {
+      const { data: existingClient } = await service
+        .from('clients')
+        .select('id')
+        .eq('id', body.clientId)
+        .eq('owner_id', user.id)
+        .maybeSingle();
+      if (existingClient?.id) {
+        validClientId = existingClient.id;
+      }
+    }
 
     const { data: inserted, error } = await service
       .from('portal_invites')
@@ -85,8 +100,8 @@ export async function POST(request: NextRequest) {
         client_name: typeof body.provisionalName === 'string' && body.provisionalName.trim()
           ? body.provisionalName.trim()
           : null,
-        client_id: clientId,
-        fee_snapshot: feeSnapshot(body.fees),
+        client_id: validClientId,
+        fee_snapshot: feeSnapshot(body.fees, body.paymentMode),
         expires_at: expiresAt,
       })
       .select('id')

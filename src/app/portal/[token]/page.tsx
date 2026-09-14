@@ -20,7 +20,7 @@ type PortalInvite = {
   advocate_name: string;
   client_name: string | null;
   status: PortalInviteStatus;
-  fee_snapshot: Array<{ fee_type: string; amount: number; razorpay_link_url: string | null }>;
+  fee_snapshot: Array<{ fee_type: string; amount: number; razorpay_link_url: string | null; payment_mode?: 'cash' | 'upi' | 'razorpay' }>;
   expires_at: string;
   revoked_at: string | null;
   submitted_at: string | null;

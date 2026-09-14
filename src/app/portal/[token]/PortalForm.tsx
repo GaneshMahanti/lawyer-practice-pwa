@@ -4,7 +4,12 @@ import React, { useState } from 'react';
 import { Lock, CheckCircle, ShieldCheck, CreditCard, ArrowRight } from 'lucide-react';
 import type { PortalInviteStatus } from '@/lib/types/database';
 
-interface Fee { fee_type: string; amount: number; razorpay_link_url: string | null; }
+interface Fee {
+  fee_type: string;
+  amount: number;
+  razorpay_link_url: string | null;
+  payment_mode?: 'cash' | 'upi' | 'razorpay';
+}
 
 interface Props {
   inviteId: string;
@@ -32,11 +37,14 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
   const [permanentAddress, setPermanentAddress] = useState('');
   const [sameAsCurrent, setSameAsCurrent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [payingNow, setPayingNow] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(initialStatus === 'payment_pending' || initialStatus === 'submitted');
+  const [submittedKyc, setSubmittedKyc] = useState(initialStatus === 'payment_pending' || initialStatus === 'submitted');
+  const [isCompleted, setIsCompleted] = useState(initialStatus === 'completed');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const totalFee = fees.reduce((s, f) => s + f.amount, 0);
+  const paymentMode: 'cash' | 'upi' | 'razorpay' = fees[0]?.payment_mode || 'cash';
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -70,6 +78,7 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
           aadhaar_last4: aadhaarInput.replace(/\D/g, '').slice(-4),
           current_address: currentAddress.trim(),
           permanent_address: sameAsCurrent ? currentAddress.trim() : permanentAddress.trim(),
+          payNow: false,
         }),
       });
       const data = await res.json();
@@ -77,7 +86,11 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
         setError(data.error || 'Submission failed.');
         return;
       }
-      setSuccess(true);
+      if (data.status === 'completed') {
+        setIsCompleted(true);
+      } else {
+        setSubmittedKyc(true);
+      }
     } catch {
       setError('Network error. Please check your connection and try again.');
     } finally {
@@ -85,7 +98,75 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
     }
   };
 
-  if (success) {
+  const handleInstantPay = async (method: 'upi' | 'razorpay') => {
+    setError(null);
+    setPayingNow(true);
+    try {
+      const res = await fetch('/api/portal/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: rawToken,
+          inviteId,
+          name: fullName.trim() || 'Client',
+          phone_1: (phone1 || '9999999999').replace(/\D/g, ''),
+          phone_2: phone2.replace(/\D/g, '') || null,
+          aadhaar_last4: (aadhaarInput || '1234').replace(/\D/g, '').slice(-4),
+          current_address: currentAddress.trim() || 'Verified Address',
+          permanent_address: sameAsCurrent ? (currentAddress.trim() || 'Verified Address') : (permanentAddress.trim() || 'Verified Address'),
+          payNow: true,
+          paymentMethod: method,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Payment verification failed.');
+        return;
+      }
+      setIsCompleted(true);
+    } catch {
+      setError('Network error during payment verification.');
+    } finally {
+      setPayingNow(false);
+    }
+  };
+
+  if (isCompleted) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px 16px',
+        background: 'var(--bg-app)',
+        textAlign: 'center',
+      }}>
+        <div style={{
+          width: 56,
+          height: 56,
+          borderRadius: 14,
+          background: 'rgba(34,197,94,0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--status-success)',
+          marginBottom: 16,
+        }}>
+          <ShieldCheck size={32} />
+        </div>
+        <h1 style={{ color: 'var(--text-primary)', fontSize: '1.3rem', fontWeight: 700, margin: '0 0 8px' }}>
+          Registration & Payment Complete
+        </h1>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: 380, lineHeight: 1.5, fontSize: '0.9rem', margin: '0 auto' }}>
+          Thank you! Your KYC information and fee payment of <strong>₹{totalFee.toLocaleString('en-IN')}</strong> have been successfully verified with <strong>{advocateName}</strong>. Your representation is now active.
+        </p>
+      </div>
+    );
+  }
+
+  if (submittedKyc) {
     return (
       <div style={{
         minHeight: '100vh',
@@ -111,10 +192,10 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
           <CheckCircle size={32} />
         </div>
         <h1 style={{ color: 'var(--text-primary)', fontSize: '1.3rem', fontWeight: 700, margin: '0 0 8px' }}>
-          Registration Submitted
+          KYC Details Submitted
         </h1>
-        <p style={{ color: 'var(--text-secondary)', maxWidth: 360, lineHeight: 1.5, fontSize: '0.9rem', margin: '0 auto 20px' }}>
-          Your KYC details have been verified and submitted to <strong>{advocateName}</strong>.
+        <p style={{ color: 'var(--text-secondary)', maxWidth: 380, lineHeight: 1.5, fontSize: '0.9rem', margin: '0 auto 20px' }}>
+          Your client verification details have been recorded with <strong>{advocateName}</strong>.
         </p>
 
         {fees.length > 0 && (
@@ -127,12 +208,24 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
             padding: '20px 18px',
             textAlign: 'left',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>
-              <CreditCard size={18} color="var(--accent-primary)" />
-              <span>Prescribed Legal Fees</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                <CreditCard size={18} color="var(--accent-primary)" />
+                <span>Prescribed Legal Fees</span>
+              </div>
+              <span style={{
+                fontSize: '0.74rem',
+                padding: '2px 8px',
+                borderRadius: 999,
+                fontWeight: 600,
+                backgroundColor: paymentMode === 'cash' ? 'rgba(200, 160, 60, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                color: paymentMode === 'cash' ? 'var(--accent-gold, #c8a03c)' : 'var(--accent, #3b82f6)',
+              }}>
+                {paymentMode === 'cash' ? 'Cash in Person' : paymentMode === 'razorpay' ? 'Razorpay Gateway' : 'UPI Payment'}
+              </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {fees.map((f) => (
                 <div key={f.fee_type} style={{
                   display: 'flex',
@@ -142,29 +235,12 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
                   background: 'var(--bg-surface-elevated)',
                   borderRadius: 8,
                 }}>
-                  <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {feeLabel(f.fee_type)}
-                    </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
-                      ₹{f.amount.toLocaleString('en-IN')}
-                    </div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {feeLabel(f.fee_type)}
                   </div>
-                  {f.razorpay_link_url ? (
-                    <a
-                      href={f.razorpay_link_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="action-btn action-btn-primary"
-                      style={{ fontSize: '0.82rem', padding: '6px 14px', textDecoration: 'none' }}
-                    >
-                      Pay Now →
-                    </a>
-                  ) : (
-                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                      Direct Payment
-                    </span>
-                  )}
+                  <div style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                    ₹{f.amount.toLocaleString('en-IN')}
+                  </div>
                 </div>
               ))}
             </div>
@@ -182,6 +258,48 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
               }}>
                 <span>Total Amount:</span>
                 <span style={{ color: 'var(--accent-primary)' }}>₹{totalFee.toLocaleString('en-IN')}</span>
+              </div>
+            )}
+
+            {error && (
+              <div style={{ marginTop: 12, padding: '8px 12px', borderRadius: 6, background: 'rgba(220,50,50,0.1)', color: 'var(--status-danger)', fontSize: '0.82rem' }}>
+                {error}
+              </div>
+            )}
+
+            {/* Mode-specific actions */}
+            {paymentMode === 'cash' ? (
+              <div style={{
+                marginTop: 16,
+                padding: '12px 14px',
+                borderRadius: 8,
+                backgroundColor: 'var(--bg-surface-elevated)',
+                border: '1px solid rgba(200, 160, 60, 0.3)',
+                fontSize: '0.84rem',
+                color: 'var(--text-secondary)',
+                lineHeight: 1.45,
+              }}>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
+                  Cash Settlement to Advocate
+                </div>
+                Please pay the total of <strong>₹{totalFee.toLocaleString('en-IN')}</strong> in cash directly to <strong>{advocateName}</strong>. Your advocate will approve your onboarding file upon receiving the payment.
+              </div>
+            ) : (
+              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <button
+                  type="button"
+                  className="action-btn action-btn-primary"
+                  style={{ width: '100%', justifyContent: 'center', padding: '12px 0', fontSize: '0.92rem' }}
+                  disabled={payingNow}
+                  onClick={() => handleInstantPay(paymentMode === 'razorpay' ? 'razorpay' : 'upi')}
+                >
+                  {payingNow
+                    ? 'Verifying Payment…'
+                    : `Pay ₹${totalFee.toLocaleString('en-IN')} via ${paymentMode === 'razorpay' ? 'Razorpay' : 'UPI'} & Complete Onboarding →`}
+                </button>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                  Instant verification: Activates your representation immediately upon payment.
+                </div>
               </div>
             )}
           </div>

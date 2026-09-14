@@ -50,6 +50,7 @@ export default function ClientsPage() {
   const [consultationFee, setConsultationFee] = useState('');
   const [legalNoticeFee, setLegalNoticeFee] = useState('');
   const [caseFee, setCaseFee] = useState('');
+  const [invitePaymentMode, setInvitePaymentMode] = useState<'cash' | 'upi' | 'razorpay'>('cash');
 
   // Direct add fields
   const [directName, setDirectName] = useState('');
@@ -123,6 +124,7 @@ export default function ClientsPage() {
       clientId: provisionalClientId,
       provisionalName: inviteName.trim() || undefined,
       phone: invitePhone.trim() || undefined,
+      paymentMode: invitePaymentMode,
       fees: {
         consultation: cFee > 0 ? cFee : undefined,
         legal_notice: lFee > 0 ? lFee : undefined,
@@ -301,6 +303,7 @@ export default function ClientsPage() {
             setConsultationFee('');
             setLegalNoticeFee('');
             setCaseFee('');
+            setInvitePaymentMode('cash');
             setInviteError(null);
             setShowInviteModal(true);
           }}
@@ -527,6 +530,9 @@ export default function ClientsPage() {
                   invite?.submitted_at
                 );
                 const isPaymentPending = isKycSubmitted && totalFees > 0;
+                const feeSnapshot = Array.isArray(invite?.fee_snapshot) ? (invite.fee_snapshot as Array<{ payment_mode?: string }>) : [];
+                const invitePmMode: string = feeSnapshot[0]?.payment_mode || 'cash';
+                const pmLabel = invitePmMode === 'upi' ? 'UPI' : invitePmMode === 'razorpay' ? 'Razorpay' : 'Cash';
 
                 return (
                   <div key={c.id} className="card" style={{ marginBottom: 0 }}>
@@ -575,8 +581,20 @@ export default function ClientsPage() {
 
                     {/* Fees attached */}
                     {totalFees > 0 && (
-                      <div style={{ margin: '6px 0 10px', fontSize: '0.84rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
-                        Scheduled Fees: ₹{totalFees.toLocaleString('en-IN')}
+                      <div style={{ margin: '6px 0 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.84rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                          Scheduled Fees: ₹{totalFees.toLocaleString('en-IN')}
+                        </span>
+                        <span style={{
+                          fontSize: '0.72rem',
+                          padding: '2px 7px',
+                          borderRadius: 999,
+                          fontWeight: 600,
+                          backgroundColor: invitePmMode === 'cash' ? 'rgba(200,160,60,0.15)' : 'rgba(59,130,246,0.15)',
+                          color: invitePmMode === 'cash' ? '#c8a03c' : '#3b82f6',
+                        }}>
+                          {pmLabel}
+                        </span>
                       </div>
                     )}
 
@@ -726,6 +744,52 @@ export default function ClientsPage() {
                     value={caseFee}
                     onChange={(e) => setCaseFee(e.target.value)}
                   />
+                </div>
+
+                {/* Payment Collection Mode */}
+                <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginTop: 12 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: 4 }}>
+                    How will you collect the fee?
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>
+                    This determines how the client is instructed to pay after KYC.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {([
+                      { value: 'cash' as const, label: 'Collect Cash in Person', desc: 'Client pays cash to advocate. You approve manually from Pending Invites.', color: '#c8a03c', disabled: false },
+                      { value: 'upi' as const, label: 'Collect UPI (Manual)', desc: 'Client pays via UPI. You verify and mark received. Activation is instant.', color: '#3b82f6', disabled: false },
+                      { value: 'razorpay' as const, label: 'Razorpay Gateway (Coming Soon)', desc: 'Online payment link sent to client. Auto-activates on payment.', color: '#6b7280', disabled: true },
+                    ]).map((opt) => (
+                      <label
+                        key={opt.value}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 10,
+                          padding: '10px 12px',
+                          borderRadius: 10,
+                          border: invitePaymentMode === opt.value ? `1px solid ${opt.color}` : '1px solid var(--border-subtle)',
+                          backgroundColor: invitePaymentMode === opt.value ? `${opt.color}18` : 'var(--bg-app)',
+                          cursor: opt.disabled ? 'not-allowed' : 'pointer',
+                          opacity: opt.disabled ? 0.55 : 1,
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          name="invitePaymentMode"
+                          value={opt.value}
+                          checked={invitePaymentMode === opt.value}
+                          disabled={opt.disabled}
+                          onChange={() => !opt.disabled && setInvitePaymentMode(opt.value)}
+                          style={{ accentColor: opt.color, marginTop: 2 }}
+                        />
+                        <div>
+                          <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>{opt.label}</div>
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 2 }}>{opt.desc}</div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
                 </div>
 
                 <button

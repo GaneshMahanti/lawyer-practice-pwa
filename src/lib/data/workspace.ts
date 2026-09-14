@@ -617,6 +617,7 @@ export interface InviteClientParams {
   clientId?: string;
   provisionalName?: string;
   phone?: string;
+  paymentMode?: 'cash' | 'upi' | 'razorpay';
   fees: {
     consultation?: number;
     legal_notice?: number;
