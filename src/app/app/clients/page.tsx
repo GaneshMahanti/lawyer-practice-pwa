@@ -15,14 +15,17 @@ import {
   createDirectClient,
   getMattersByClientId,
   getWorkspaceState,
+  markClientPaymentCompleted,
+  hydrateWorkspace,
 } from '@/lib/data/repository';
-import type { Client, ClientFee } from '@/lib/types/database';
+import type { Client, ClientFee, PortalInvite } from '@/lib/types/database';
 
 export default function ClientsPage() {
   const { t } = useLanguage();
 
   const [clients, setClients] = useState<Client[]>([]);
   const [fees, setFees] = useState<ClientFee[]>([]);
+  const [invites, setInvites] = useState<PortalInvite[]>([]);
   const [activeTab, setActiveTab] = useState<'active' | 'pending'>('active');
   const [practiceFilter, setPracticeFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -30,6 +33,12 @@ export default function ClientsPage() {
   // Modal states
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showDirectAddModal, setShowDirectAddModal] = useState(false);
+  const [showAcceptPaymentModal, setShowAcceptPaymentModal] = useState(false);
+  const [selectedPendingClient, setSelectedPendingClient] = useState<Client | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'cash' | 'upi'>('cash');
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+
   const [inviteResult, setInviteResult] = useState<InviteClientResult | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
@@ -52,16 +61,31 @@ export default function ClientsPage() {
   const [directPermAddr, setDirectPermAddr] = useState('');
   const [directAadhaar, setDirectAadhaar] = useState('');
 
-  const refreshData = () => {
+  const refreshData = async () => {
     setClients(loadClients());
     setFees(loadClientFees());
+    try {
+      const res = await fetch('/api/portal/invites');
+      if (res.ok) {
+        const data = await res.json();
+        setInvites(data.invites || []);
+      }
+    } catch {}
+    void hydrateWorkspace().then(() => {
+      setClients(loadClients());
+      setFees(loadClientFees());
+    });
   };
 
   useEffect(() => {
     refreshData();
     const handleUpdate = () => refreshData();
     window.addEventListener('vakildesk-clients-update', handleUpdate);
-    return () => window.removeEventListener('vakildesk-clients-update', handleUpdate);
+    window.addEventListener('focus', handleUpdate);
+    return () => {
+      window.removeEventListener('vakildesk-clients-update', handleUpdate);
+      window.removeEventListener('focus', handleUpdate);
+    };
   }, []);
 
   // Filter clients
@@ -93,7 +117,10 @@ export default function ClientsPage() {
     const lFee = parseFloat(legalNoticeFee) || 0;
     const csFee = parseFloat(caseFee) || 0;
 
+    const provisionalClientId = crypto.randomUUID();
+
     const inviteParams = {
+      clientId: provisionalClientId,
       provisionalName: inviteName.trim() || undefined,
       phone: invitePhone.trim() || undefined,
       fees: {
@@ -171,6 +198,40 @@ export default function ClientsPage() {
       alert('Could not delete invite. Rolled back.');
     } finally {
       setDeletingInviteId(null);
+    }
+  };
+
+  const handleConfirmAcceptPayment = async () => {
+    if (!selectedPendingClient) return;
+    setIsRecordingPayment(true);
+    setPaymentError(null);
+
+    const clientInvite = invites.find((inv) => inv.client_id === selectedPendingClient.id);
+
+    try {
+      const res = await fetch('/api/payments/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: selectedPendingClient.id,
+          inviteId: clientInvite?.id,
+          method: selectedPaymentMethod,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to record payment.');
+      }
+
+      await markClientPaymentCompleted(selectedPendingClient.id);
+      setShowAcceptPaymentModal(false);
+      setSelectedPendingClient(null);
+      await refreshData();
+    } catch (err: any) {
+      setPaymentError(err.message || 'Payment acceptance failed.');
+    } finally {
+      setIsRecordingPayment(false);
     }
   };
 
@@ -459,6 +520,13 @@ export default function ClientsPage() {
                 const regUrl = `${origin}/portal/${c.registration_token}`;
                 const clientFees = fees.filter((f) => f.client_id === c.id);
                 const totalFees = clientFees.reduce((acc, f) => acc + f.amount, 0);
+                const invite = invites.find((inv) => inv.client_id === c.id);
+                const isKycSubmitted = Boolean(
+                  c.aadhaar_last4 ||
+                  invite?.status === 'payment_pending' ||
+                  invite?.submitted_at
+                );
+                const isPaymentPending = isKycSubmitted && totalFees > 0;
 
                 return (
                   <div key={c.id} className="card" style={{ marginBottom: 0 }}>
@@ -468,13 +536,42 @@ export default function ClientsPage() {
                           {c.name}
                         </div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                          Invited on {new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          {isKycSubmitted ? 'KYC Verified' : `Invited on ${new Date(c.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`}
                         </div>
                       </div>
-                      <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: 999, backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)', fontWeight: 600 }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Awaiting KYC
-                      </span>
+                      {isPaymentPending ? (
+                        <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: 999, backgroundColor: 'rgba(59, 130, 246, 0.12)', color: 'var(--accent)', border: '1px solid rgba(59, 130, 246, 0.3)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>Payment Pending
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: 999, backgroundColor: 'var(--status-warning-bg)', color: 'var(--status-warning)', fontWeight: 600 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Awaiting KYC
+                        </span>
+                      )}
                     </div>
+
+                    {/* Verified KYC summary if submitted */}
+                    {isKycSubmitted && (
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 8, padding: '8px 10px', fontSize: '0.8rem', margin: '6px 0 10px' }}>
+                        {c.phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Verified Phone:</span>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{c.phone}</span>
+                          </div>
+                        )}
+                        {c.aadhaar_last4 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Aadhaar (Masked):</span>
+                            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>XXXX-XXXX-{c.aadhaar_last4}</span>
+                          </div>
+                        )}
+                        {c.current_address && (
+                          <div style={{ color: 'var(--text-secondary)', fontSize: '0.76rem', marginTop: 3 }}>
+                            Address: {c.current_address}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Fees attached */}
                     {totalFees > 0 && (
@@ -484,7 +581,26 @@ export default function ClientsPage() {
                     )}
 
                     {/* Link action */}
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                      {isPaymentPending && (
+                        <button
+                          type="button"
+                          className="action-btn action-btn-primary"
+                          style={{ flex: '1 1 100%', justifyContent: 'center', fontSize: '0.84rem', padding: '8px 12px' }}
+                          onClick={() => {
+                            setSelectedPendingClient(c);
+                            setSelectedPaymentMethod('cash');
+                            setPaymentError(null);
+                            setShowAcceptPaymentModal(true);
+                          }}
+                        >
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <rect width="20" height="14" x="2" y="5" rx="2" />
+                            <line x1="2" x2="22" y1="10" y2="10" />
+                          </svg>
+                          Accept Payment
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="action-btn"
@@ -497,10 +613,10 @@ export default function ClientsPage() {
                         href={getWhatsAppShareUrl(regUrl, c.name, c.phone)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="action-btn action-btn-primary"
+                        className="action-btn"
                         style={{ flex: 1, justifyContent: 'center', fontSize: '0.82rem', textDecoration: 'none' }}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Share on WhatsApp
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:4}} aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>WhatsApp
                       </a>
                       <button
                         type="button"
@@ -787,6 +903,136 @@ export default function ClientsPage() {
                 Save Client Record
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Accept Payment & Activate Client ── */}
+      {showAcceptPaymentModal && selectedPendingClient && (
+        <div className="modal-overlay">
+          <div
+            className="card modal-card"
+            style={{
+              maxWidth: 420,
+              position: 'relative',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                Accept Fee Payment
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAcceptPaymentModal(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '1.4rem', cursor: 'pointer', padding: 4 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 2 }}>Client</div>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                {selectedPendingClient.name}
+              </div>
+            </div>
+
+            {/* Fee summary */}
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 2 }}>Total Scheduled Fee</div>
+              <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--accent)' }}>
+                ₹{fees.filter((f) => f.client_id === selectedPendingClient.id).reduce((s, f) => s + f.amount, 0).toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            {/* Method selection */}
+            <div style={{ marginBottom: 16 }}>
+              <label className="input-label" style={{ marginBottom: 8 }}>Select Payment Received Method *</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: selectedPaymentMethod === 'cash' ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                    backgroundColor: selectedPaymentMethod === 'cash' ? 'var(--accent-soft)' : 'var(--bg-app)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="manualPaymentMethod"
+                    value="cash"
+                    checked={selectedPaymentMethod === 'cash'}
+                    onChange={() => setSelectedPaymentMethod('cash')}
+                    style={{ accentColor: 'var(--accent)' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>Cash received</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Payment collected in physical cash by advocate/office</div>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: selectedPaymentMethod === 'upi' ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                    backgroundColor: selectedPaymentMethod === 'upi' ? 'var(--accent-soft)' : 'var(--bg-app)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="manualPaymentMethod"
+                    value="upi"
+                    checked={selectedPaymentMethod === 'upi'}
+                    onChange={() => setSelectedPaymentMethod('upi')}
+                    style={{ accentColor: 'var(--accent)' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>UPI received (manual)</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Direct UPI transfer received to advocate account</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: 1.4, margin: '0 0 16px' }}>
+              Recording this payment will generate an invoice, complete the onboarding invite, and transition this client into your active practice.
+            </p>
+
+            {paymentError && (
+              <div style={{ color: 'var(--status-danger)', fontSize: '0.82rem', marginBottom: 14 }}>
+                {paymentError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="action-btn"
+                style={{ flex: 1, justifyContent: 'center' }}
+                onClick={() => setShowAcceptPaymentModal(false)}
+                disabled={isRecordingPayment}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="action-btn action-btn-primary"
+                style={{ flex: 2, justifyContent: 'center' }}
+                onClick={handleConfirmAcceptPayment}
+                disabled={isRecordingPayment}
+              >
+                {isRecordingPayment ? 'Recording...' : 'Confirm & Activate Client'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { isRealAppUser } from '@/lib/supabase/auth';
 
 type InviteRequest = {
+  clientId?: unknown;
   provisionalName?: unknown;
   fees?: {
     consultation?: unknown;
@@ -39,6 +40,30 @@ async function getAuthenticatedUser(request: NextRequest) {
   return error || !isRealAppUser(user) ? null : user;
 }
 
+export async function GET(request: NextRequest) {
+  const user = await getAuthenticatedUser(request);
+  if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+
+  try {
+    const service = createServiceClient() as any;
+    const { data: invites, error } = await service
+      .from('portal_invites')
+      .select('id, owner_id, token_hash, status, advocate_name, client_name, client_id, fee_snapshot, expires_at, revoked_at, submitted_at, completed_at, created_at')
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to query portal_invites:', error);
+      return NextResponse.json({ error: 'Failed to retrieve invites' }, { status: 500 });
+    }
+
+    return NextResponse.json({ invites: invites || [] });
+  } catch (error) {
+    console.error('Portal invites GET exception:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
   if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
@@ -48,22 +73,30 @@ export async function POST(request: NextRequest) {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
     const service = createServiceClient() as any;
-    const { error } = await service.from('portal_invites').insert({
-      owner_id: user.id,
-      token_hash: createHash('sha256').update(token).digest('hex'),
-      status: 'pending',
-      advocate_name: user.user_metadata?.full_name || user.email || 'Your Advocate',
-      client_name: typeof body.provisionalName === 'string' && body.provisionalName.trim()
-        ? body.provisionalName.trim()
-        : null,
-      fee_snapshot: feeSnapshot(body.fees),
-      expires_at: expiresAt,
-    });
+    const clientId = typeof body.clientId === 'string' && body.clientId.length > 10 ? body.clientId : null;
+
+    const { data: inserted, error } = await service
+      .from('portal_invites')
+      .insert({
+        owner_id: user.id,
+        token_hash: createHash('sha256').update(token).digest('hex'),
+        status: 'pending',
+        advocate_name: user.user_metadata?.full_name || user.email || 'Your Advocate',
+        client_name: typeof body.provisionalName === 'string' && body.provisionalName.trim()
+          ? body.provisionalName.trim()
+          : null,
+        client_id: clientId,
+        fee_snapshot: feeSnapshot(body.fees),
+        expires_at: expiresAt,
+      })
+      .select('id')
+      .single();
+
     if (error) {
       console.error('Portal invite creation failed:', error);
       return NextResponse.json({ error: 'Unable to create the invite' }, { status: 500 });
     }
-    return NextResponse.json({ token, expiresAt });
+    return NextResponse.json({ token, expiresAt, inviteId: inserted?.id });
   } catch (error) {
     console.error('Portal invite request failed:', error);
     return NextResponse.json({ error: 'Unable to create the invite' }, { status: 500 });

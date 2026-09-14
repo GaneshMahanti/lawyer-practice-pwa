@@ -614,6 +614,7 @@ export function generateCryptographicToken(): string {
 }
 
 export interface InviteClientParams {
+  clientId?: string;
   provisionalName?: string;
   phone?: string;
   fees: {
@@ -642,7 +643,7 @@ export async function createClientInvite(
   const token = serverInvite?.token || generateCryptographicToken();
   const now = new Date();
   const expiresAt = serverInvite ? new Date(serverInvite.expiresAt) : new Date(now.getTime() + 72 * 60 * 60 * 1000);
-  const clientId = newId();
+  const clientId = params.clientId || newId();
   const client: Client = {
     id: clientId,
     owner_id,
@@ -707,6 +708,26 @@ export function getMattersByClientId(clientId: string): Matter[] {
 
 export function getMatterById(matterId: string): Matter | null {
   return memory.matters.find((m) => m.id === matterId) || null;
+}
+
+export async function markClientPaymentCompleted(clientId: string): Promise<void> {
+  const clientIdx = memory.clients.findIndex((c) => c.id === clientId);
+  if (clientIdx !== -1) {
+    memory.clients[clientIdx] = {
+      ...memory.clients[clientIdx],
+      status: 'active',
+      registration_token: null,
+      token_expires_at: null,
+      updated_at: new Date().toISOString(),
+    };
+  }
+  memory.fees.forEach((f) => {
+    if (f.client_id === clientId) {
+      f.payment_status = 'paid';
+    }
+  });
+  await persistSnapshot();
+  notify('vakildesk-clients-update');
 }
 
 export { newId };

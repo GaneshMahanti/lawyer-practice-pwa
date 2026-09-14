@@ -381,7 +381,7 @@ function UnifiedNotesContent() {
         return { text: '', error: 'Enhanced OCR is not available in Demo Mode. Sign in as an approved advocate to scan documents on desktop.' };
       }
       if (res.status === 503) {
-        return { text: '', error: 'Enhanced OCR is not configured on this server. Add OPENAI_API_KEY to .env.local and restart the app.' };
+        return { text: '', error: 'Enhanced OCR is not configured on this server. Configure the OpenAI Vision key in .env.local and restart the app.' };
       }
       if (!res.ok || !data.text) {
         return { text: '', error: data.error || 'Enhanced OCR could not extract text from this image.' };
@@ -864,7 +864,7 @@ function UnifiedNotesContent() {
                     <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
                       Scans first try on-device OCR (private, works offline). If your browser
                       can&apos;t read the image, the app falls back to secure server OCR (OpenAI
-                      Vision) — this requires <code>OPENAI_API_KEY</code> in <code>.env.local</code>
+                      Vision) — this requires server-side OpenAI configuration in <code>.env.local</code>
                       and only works when signed in as an approved advocate.
                     </p>
                   </>

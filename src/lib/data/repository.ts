@@ -29,6 +29,7 @@ export {
   createDirectClient,
   createMatterRecord as createMatter,
   updateMatterRecord,
+  markClientPaymentCompleted,
   type InviteClientParams,
   type InviteClientResult,
 } from '@/lib/data/workspace';
