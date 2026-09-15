@@ -136,6 +136,7 @@ function DocumentTranslationContent() {
         const form = new FormData();
         form.append('consent', 'true');
         form.append('file', uploadedFile, uploadedFile.name);
+        form.append('language', 'te-IN');
         if (selectedMatterId) form.append('matterId', selectedMatterId);
 
         res = await fetch('/api/ocr/enhanced', { method: 'POST', body: form });
@@ -148,6 +149,7 @@ function DocumentTranslationContent() {
             consent: true,
             matterId: selectedMatterId || null,
             imageBase64: uploadedImagePreview,
+            language: 'te-IN',
           }),
         });
       }

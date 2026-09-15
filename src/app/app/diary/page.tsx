@@ -12,6 +12,7 @@ import {
   loadMatters,
 } from '@/lib/data/repository';
 import { extractSelectablePdfText } from '@/lib/ocr/localOcr';
+import { encodeToWav } from '@/lib/audio/wavEncoder';
 import type { DiaryEntry, Client, Matter } from '@/lib/types/database';
 import {
   BookOpen,
@@ -228,8 +229,22 @@ function UnifiedNotesContent() {
     setSttDraft('');
 
     try {
+      // Convert any browser-recorded audio (WebM/Opus, OGG) to genuine 16-bit PCM WAV.
+      // Sarvam STT rejects "audio/webm;codecs=opus" — we must produce a real WAV.
+      // The original audioBlob is kept untouched for playback.
+      let audioToSend: Blob = audioBlob;
+
+      if (audioBlob.type !== 'audio/wav' && audioBlob.type !== 'audio/wave') {
+        try {
+          audioToSend = await encodeToWav(audioBlob);
+        } catch (convErr) {
+          setSttError(convErr instanceof Error ? convErr.message : 'Could not convert the recording to WAV.');
+          return;
+        }
+      }
+
       const form = new FormData();
-      form.append('file', audioBlob, audioBlob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm');
+      form.append('file', audioToSend, 'recording.wav');
       form.append('language_code', sttLang);
       form.append('mode', 'codemix');
 
@@ -239,7 +254,8 @@ function UnifiedNotesContent() {
       if (res.ok && data.transcript) {
         setSttDraft(data.transcript);
       } else {
-        setSttError(data.error || 'Transcription failed. Please try again.');
+        const code = data.code ? ` [${data.code}]` : '';
+        setSttError((data.error || 'Transcription failed. Please try again.') + code);
       }
     } catch {
       setSttError('Could not reach the transcription service. Check your connection.');
@@ -404,11 +420,14 @@ function UnifiedNotesContent() {
 
   const runSarvamDocAiOcr = async (
     file: File,
+    sourceLang: string,
   ): Promise<{ text: string; warning?: string } | { text: ''; error: string; retryable?: boolean }> => {
     try {
       const form = new FormData();
       form.append('consent', 'true');
       form.append('file', file, file.name);
+      // Pass the selected source language so Sarvam Document AI knows the script
+      if (sourceLang) form.append('language', sourceLang);
       if (selectedMatterId) form.append('matterId', selectedMatterId);
 
       const res = await fetch('/api/ocr/enhanced', {
@@ -418,9 +437,11 @@ function UnifiedNotesContent() {
 
       const data = await res.json();
       if (!res.ok || !data.text) {
+        // Include error code in message for debugging visibility (safe — no secrets exposed)
+        const code = data.code ? ` [${data.code}]` : '';
         return {
           text: '',
-          error: data.error || 'Sarvam Document AI extraction failed. Please try again.',
+          error: (data.error || 'Sarvam Document AI extraction failed. Please try again.') + code,
           retryable: data.retryable ?? true,
         };
       }
@@ -454,8 +475,8 @@ function UnifiedNotesContent() {
         extracted = selectableText.trim();
         ocrNotice = 'Selectable text extracted directly from document byte stream (lossless). Review for formatting.';
       } else {
-        // 2. Scanned image or scanned PDF: send directly to Sarvam Document AI
-        const serverResult = await runSarvamDocAiOcr(scanFile);
+        // 2. Scanned image or scanned PDF: send directly to Sarvam Document AI with language hint
+        const serverResult = await runSarvamDocAiOcr(scanFile, translateSourceLang);
         if (serverResult.text) {
           extracted = serverResult.text;
           ocrNotice = ('warning' in serverResult ? serverResult.warning : undefined) || '✦ Sarvam Document AI Draft — review against original document before use.';

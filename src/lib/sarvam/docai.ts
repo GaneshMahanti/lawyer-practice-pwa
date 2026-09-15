@@ -99,6 +99,13 @@ export interface DocAIOptions {
   fileName?: string;
   outputFormat?: SarvamDocAIOutputFormat;
   /**
+   * BCP-47 language hint for Sarvam Document AI.
+   * e.g. 'te-IN' for Telugu, 'hi-IN' for Hindi, 'en-IN' for English.
+   * When omitted, Sarvam auto-detects (less reliable for Telugu).
+   * Sarvam API param name: 'language' (NOT 'language_code').
+   */
+  language?: string;
+  /**
    * Specific page numbers to process (1-indexed).
    * Capped at DOC_AI_MAX_PAGES to control cost.
    * If omitted, Sarvam processes the entire document (up to its own limit).
@@ -124,6 +131,7 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
   const {
     fileBlob,
     fileName,
+    language,
     outputFormat = 'markdown',
     pages,
     isDemoMode = false,
@@ -182,10 +190,14 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
   // Sarvam official doc-ai/v1 API requires 'md', 'html', or 'json'
   form.append('output_format', outputFormat === 'json' ? 'json' : outputFormat === 'html' ? 'html' : 'md');
 
-  // Only include model field if explicitly configured — most Doc AI endpoints
-  // default to Sarvam Vision 1.5 without needing an explicit model parameter.
   if (SARVAM_DOCAI_MODEL) {
     form.append('model', SARVAM_DOCAI_MODEL);
+  }
+
+  // Language hint — use 'language' (NOT 'language_code') per Sarvam doc-ai API contract.
+  // Providing this significantly improves Telugu/Hindi OCR accuracy.
+  if (language) {
+    form.append('language', language);
   }
 
   if (safePages && safePages.length > 0) {

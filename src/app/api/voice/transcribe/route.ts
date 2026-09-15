@@ -5,13 +5,12 @@
  * Accepts multipart/form-data with an audio file blob.
  *
  * SECURITY:
- *   - requireRealAppUser enforces authenticated non-demo lawyers.
- *   - Demo mode returns a capped mock response (max DEMO_MODE_MAX_CALLS checks left to client).
+ *   - Real advocates use Sarvam; demo users receive a capped deterministic mock response.
  *   - SARVAM_API_KEY is server-only; never returned in response or logged.
  *   - Audio content is never stored or logged server-side.
  *
  * Request (multipart/form-data):
- *   file          - audio blob (WAV or WEBM)
+ *   file          - genuine 16-bit PCM WAV audio blob
  *   language_code - BCP-47 code: 'te-IN' | 'hi-IN' | 'en-IN' | 'unknown' (default: 'unknown')
  *   mode          - 'codemix' | 'transcribe' | 'translate' | 'verbatim' (default: 'codemix')
  *
@@ -22,7 +21,8 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { requireRealAppUser } from '@/lib/auth/requestUser';
+import { getRequestUser } from '@/lib/auth/requestUser';
+import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { transcribeAudio, isSarvamConfigured } from '@/lib/sarvam';
 import type { SarvamLanguageCode, SarvamSTTMode } from '@/lib/sarvam';
 
@@ -33,9 +33,9 @@ const ALLOWED_LANG_CODES = new Set([
 ]);
 
 export async function POST(request: NextRequest) {
-  // ── Auth: allow real lawyers; block demo/anonymous users ──────────────────
-  const user = await requireRealAppUser(request);
-  if (!user) {
+  // ── Auth: allow approved advocates and deterministic demo users ────────────
+  const user = await getRequestUser(request);
+  if (!user || (!isAnonymousUser(user) && !isRealAppUser(user))) {
     return NextResponse.json(
       {
         error: 'Voice transcription is only available to approved advocates. Please sign in.',
@@ -74,27 +74,16 @@ export async function POST(request: NextRequest) {
     ? (rawMode as SarvamSTTMode)
     : 'codemix';
 
-  // ── Key check with Demo Mode fallback ─────────────────────────────────────
-  if (!isSarvamConfigured()) {
-    const demoResult = await transcribeAudio({
-      audioBlob: fileEntry,
-      languageCode,
-      mode,
-      isDemoMode: true,
-    });
-    if (demoResult.ok) {
-      return NextResponse.json({
-        transcript: demoResult.data.transcript,
-        language_code: demoResult.data.language_code ?? languageCode,
-        provider: 'demo',
-        warning:
-          'Demo Mode: No SARVAM_API_KEY configured on this server. Add SARVAM_API_KEY to environment variables for live AI transcription.',
-      });
-    }
+  // ── Key check: real advocates get 503 if key is missing ───────────────────
+  // Real users must never silently receive demo/mock transcripts.
+  const isDemo = isAnonymousUser(user);
 
+  if (!isDemo && !isSarvamConfigured()) {
     return NextResponse.json(
       {
-        error: 'SARVAM_API_KEY is not configured on this server. Add it to environment variables.',
+        error:
+          'Voice transcription unavailable: SARVAM_API_KEY is not configured on this server. ' +
+          'Add SARVAM_API_KEY to the server environment variables (Vercel Project Settings → Environment Variables).',
         code: 'not_configured',
       },
       { status: 503 }
@@ -106,7 +95,7 @@ export async function POST(request: NextRequest) {
     audioBlob: fileEntry,
     languageCode,
     mode,
-    isDemoMode: false,
+    isDemoMode: isDemo,
     timeoutMs: 40_000, // generous timeout for longer recordings
   });
 
@@ -128,7 +117,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     transcript: result.data.transcript,
     language_code: result.data.language_code ?? languageCode,
-    provider: 'sarvam',
+    provider: isDemo ? 'demo' : 'sarvam',
     request_id: result.requestId,
   });
 }

@@ -91,6 +91,16 @@ async function handleMultipartOcr(
     ? (formData.get('matterId') as string)
     : null;
 
+  // Normalise language hint: te → te-IN, hi → hi-IN, en → en-IN
+  const rawLang = typeof formData.get('language') === 'string'
+    ? (formData.get('language') as string).trim()
+    : null;
+  const LANG_MAP: Record<string, string> = {
+    te: 'te-IN', hi: 'hi-IN', en: 'en-IN',
+    'te-IN': 'te-IN', 'hi-IN': 'hi-IN', 'en-IN': 'en-IN',
+  };
+  const language = rawLang ? (LANG_MAP[rawLang] ?? rawLang) : undefined;
+
   // 1. Demo Mode: return deterministic mock OCR
   if (isDemo) {
     const demoResult = await extractDocumentText({
@@ -134,6 +144,7 @@ async function handleMultipartOcr(
       fileBlob: fileEntry,
       fileName,
       outputFormat: 'md',
+      language,
       pages,
       isDemoMode: false,
       pollTimeoutMs: 60_000,
@@ -196,7 +207,7 @@ async function handleMultipartOcr(
     } catch {}
 
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed. Please try again.', retryable: true },
+      { error: error instanceof Error ? error.message : 'Document AI extraction failed. Please try again.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }
@@ -210,7 +221,7 @@ async function handleJsonOcr(
   isDemo: boolean,
   service: any
 ) {
-  let body: { consent?: unknown; matterId?: unknown; imageBase64?: unknown };
+  let body: { consent?: unknown; matterId?: unknown; imageBase64?: unknown; language?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -233,6 +244,13 @@ async function handleJsonOcr(
   }
 
   const matterId = typeof body.matterId === 'string' ? body.matterId : null;
+  const rawLang = typeof body.language === 'string' ? body.language.trim() : null;
+  const language = rawLang
+    ? ({
+        te: 'te-IN', hi: 'hi-IN', en: 'en-IN',
+        'te-IN': 'te-IN', 'hi-IN': 'hi-IN', 'en-IN': 'en-IN',
+      } as Record<string, string>)[rawLang] ?? rawLang
+    : undefined;
 
   // 1. Demo Mode
   if (isDemo) {
@@ -279,6 +297,7 @@ async function handleJsonOcr(
     const result = await extractDocumentText({
       fileBlob: blob,
       outputFormat: 'md',
+      language,
       isDemoMode: false,
       pollTimeoutMs: 60_000,
     });
@@ -293,9 +312,17 @@ async function handleJsonOcr(
         });
       } catch {}
 
+      const httpStatus =
+        result.code === 'auth_error' ? 401
+        : result.code === 'quota_exhausted' ? 402
+        : result.code === 'rate_limited' ? 429
+        : result.code === 'validation_error' ? 422
+        : result.code === 'timeout' ? 504
+        : 502;
+
       return NextResponse.json(
-        { error: result.message, code: result.code, retryable: true },
-        { status: 502 }
+        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { status: httpStatus }
       );
     }
 
@@ -317,7 +344,7 @@ async function handleJsonOcr(
   } catch (error) {
     console.error('[ocr/enhanced] Sarvam DocAI JSON handler error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed.', retryable: true },
+      { error: error instanceof Error ? error.message : 'Document AI extraction failed.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }

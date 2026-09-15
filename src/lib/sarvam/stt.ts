@@ -9,7 +9,7 @@
  * Supports:
  *   - Telugu, Hindi, English, and code-mixed speech (te-IN, hi-IN, en-IN, unknown)
  *   - Mode: codemix (recommended for lawyer speech with English legal terms)
- *   - Audio: WAV or WEBM; validated for size before upload
+ *   - Audio: validated 16-bit PCM WAV; browser recordings are converted client-side
  *
  * Demo Mode:
  *   Pass isDemoMode=true to receive a realistic mock transcript without
@@ -40,16 +40,20 @@ import type {
 /** Maximum audio file size the Sarvam STT endpoint accepts (25 MB). */
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
-/** Allowed audio MIME types for Sarvam STT. */
+/** Allowed WAV MIME types for Sarvam STT. */
 const ALLOWED_AUDIO_MIME = new Set([
   'audio/wav',
   'audio/wave',
   'audio/x-wav',
-  'audio/webm',
-  'audio/ogg',
-  'audio/mp4',
-  'audio/mpeg',
 ]);
+
+async function isPcmWav(audioBlob: Blob): Promise<boolean> {
+  if (audioBlob.size < 44) return false;
+  const header = new Uint8Array(await audioBlob.slice(0, 44).arrayBuffer());
+  const text = (offset: number, length: number) => String.fromCharCode(...header.slice(offset, offset + length));
+  const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+  return text(0, 4) === 'RIFF' && text(8, 4) === 'WAVE' && text(12, 4) === 'fmt ' && view.getUint16(20, true) === 1;
+}
 
 // ── Demo Mode mock response ───────────────────────────────────────────────────
 
@@ -80,7 +84,7 @@ function demoTranscriptFor(languageCode: SarvamLanguageCode): SarvamOutcome<Sarv
 // ── Public STT helper ─────────────────────────────────────────────────────────
 
 export interface STTOptions {
-  /** Audio blob — WAV or WEBM recommended. Max 25 MB. */
+  /** Audio blob — genuine PCM WAV. Max 25 MB. */
   audioBlob: Blob;
   /** BCP-47 language code or 'unknown' for auto-detect. */
   languageCode?: SarvamLanguageCode;
@@ -144,18 +148,22 @@ export async function transcribeAudio(options: STTOptions): Promise<STTResult> {
   if (audioBlob.type && !ALLOWED_AUDIO_MIME.has(audioBlob.type)) {
     return {
       ok: false,
-      message: `Audio format "${audioBlob.type}" is not supported. Please record in WAV or WEBM format.`,
+      message: `Audio format "${audioBlob.type}" is not supported. Please convert the recording to WAV PCM before transcription.`,
+      code: 'validation_error',
+    };
+  }
+
+  if (!(await isPcmWav(audioBlob))) {
+    return {
+      ok: false,
+      message: 'The audio is not a valid PCM WAV file. Please record again and retry.',
       code: 'validation_error',
     };
   }
 
   // ── Build multipart form ───────────────────────────────────────────────────
   const form = new FormData();
-  const filename =
-    audioBlob.type === 'audio/wav' || audioBlob.type === 'audio/wave'
-      ? 'recording.wav'
-      : 'recording.webm';
-  form.append('file', audioBlob, filename);
+  form.append('file', audioBlob, 'recording.wav');
   form.append('model', SARVAM_STT_MODEL);
   form.append('language_code', languageCode);
   form.append('mode', mode);
