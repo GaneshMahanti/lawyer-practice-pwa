@@ -87,6 +87,12 @@ function UnifiedNotesContent() {
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
 
+  // Sarvam STT — explicit transcription state
+  const [sttLang, setSttLang] = useState<'unknown' | 'te-IN' | 'hi-IN' | 'en-IN'>('unknown');
+  const [transcribing, setTranscribing] = useState(false);
+  const [sttDraft, setSttDraft] = useState('');
+  const [sttError, setSttError] = useState('');
+
   // Audio Playback
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -210,6 +216,43 @@ function UnifiedNotesContent() {
     setAudioBlobUrl(null);
     setDurationSec(0);
     setRecordingState('idle');
+    setSttDraft('');
+    setSttError('');
+  };
+
+  // ── Sarvam STT: explicit transcribe action ─────────────────────────────────
+  const transcribeVoiceMemo = async () => {
+    if (!audioBlob) return;
+    setTranscribing(true);
+    setSttError('');
+    setSttDraft('');
+
+    try {
+      const form = new FormData();
+      form.append('file', audioBlob, audioBlob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm');
+      form.append('language_code', sttLang);
+      form.append('mode', 'codemix');
+
+      const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form });
+      const data = await res.json();
+
+      if (res.ok && data.transcript) {
+        setSttDraft(data.transcript);
+      } else {
+        setSttError(data.error || 'Transcription failed. Please try again.');
+      }
+    } catch {
+      setSttError('Could not reach the transcription service. Check your connection.');
+    } finally {
+      setTranscribing(false);
+    }
+  };
+
+  const insertSttDraftIntoNote = () => {
+    if (!sttDraft.trim()) return;
+    setTypedBody((prev) => (prev ? `${prev}\n\n${sttDraft.trim()}` : sttDraft.trim()));
+    setSttDraft('');
+    setSttError('');
   };
 
   // ── Unified Save (Written notes & Voice notes together) ─────────────────────
@@ -863,9 +906,9 @@ function UnifiedNotesContent() {
                     </button>
                     <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
                       Scans first try on-device OCR (private, works offline). If your browser
-                      can&apos;t read the image, the app falls back to secure server OCR (OpenAI
-                      Vision) — this requires server-side OpenAI configuration in <code>.env.local</code>
-                      and only works when signed in as an approved advocate.
+                      can&apos;t read the image, the app falls back to Sarvam Document AI
+                      (when SARVAM_API_KEY is set) or OpenAI Vision — only available when
+                      signed in as an approved advocate.
                     </p>
                   </>
                 ) : (
@@ -1113,35 +1156,130 @@ function UnifiedNotesContent() {
               )}
             </div>
 
-            {/* Attached Audio Preview (Preserves original audio) */}
+            {/* Attached Audio Preview (Preserves original audio) + STT Transcribe Panel */}
             {audioBlobUrl && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 14px',
-                background: 'var(--bg-surface-elevated)',
-                borderRadius: 12,
-                border: '1px solid var(--border-subtle)',
-                marginBottom: 12,
-                gap: 8,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-                  <Volume2 size={16} color="var(--accent-primary)" />
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Audio Dictation ({formatSec(durationSec)})
-                  </span>
-                  <audio src={audioBlobUrl} controls style={{ height: 32, flex: 1, maxWidth: 220 }} />
+              <div style={{ marginBottom: 12 }}>
+                {/* Audio player row */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  background: 'var(--bg-surface-elevated)',
+                  borderRadius: 12,
+                  border: '1px solid var(--border-subtle)',
+                  gap: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                    <Volume2 size={16} color="var(--accent-primary)" />
+                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      Audio Dictation ({formatSec(durationSec)})
+                    </span>
+                    <audio src={audioBlobUrl} controls style={{ height: 32, flex: 1, maxWidth: 220 }} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={discardRecording}
+                    className="action-btn"
+                    style={{ padding: '6px 10px', fontSize: '0.78rem', color: 'var(--status-danger)', border: 'none' }}
+                    title="Discard audio"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={discardRecording}
-                  className="action-btn"
-                  style={{ padding: '6px 10px', fontSize: '0.78rem', color: 'var(--status-danger)', border: 'none' }}
-                  title="Discard audio"
-                >
-                  <Trash2 size={14} />
-                </button>
+
+                {/* Transcribe panel */}
+                <div style={{
+                  marginTop: 8,
+                  padding: '12px 14px',
+                  background: 'var(--bg-app)',
+                  borderRadius: 12,
+                  border: '1px solid var(--border-subtle)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Sparkles size={15} color="var(--accent-primary)" />
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>Transcribe with Sarvam AI</span>
+                    </div>
+                    {/* Language selector */}
+                    <select
+                      value={sttLang}
+                      onChange={(e) => setSttLang(e.target.value as typeof sttLang)}
+                      className="input-field"
+                      style={{ fontSize: '0.75rem', padding: '4px 8px', width: 'auto', minWidth: 140 }}
+                    >
+                      <option value="unknown">Auto-detect language</option>
+                      <option value="te-IN">తెలుగు (Telugu)</option>
+                      <option value="hi-IN">हिन्दी (Hindi)</option>
+                      <option value="en-IN">English</option>
+                    </select>
+                  </div>
+
+                  <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.45 }}>
+                    Click below to convert your voice memo to text. The transcript is a draft — review it before saving.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={transcribeVoiceMemo}
+                    className="action-btn action-btn-primary"
+                    disabled={transcribing}
+                    style={{ width: '100%', justifyContent: 'center', fontSize: '0.84rem', padding: '8px 14px', marginBottom: 8 }}
+                  >
+                    {transcribing ? (
+                      <><Sparkles size={15} style={{ animation: 'spin 1s linear infinite' }} /> Transcribing…</>
+                    ) : (
+                      <><Mic size={15} /> Transcribe Voice Memo</>
+                    )}
+                  </button>
+
+                  {sttError && (
+                    <div style={{
+                      padding: '8px 10px',
+                      borderRadius: 8,
+                      background: 'rgba(239,68,68,0.1)',
+                      border: '1px solid rgba(239,68,68,0.25)',
+                      color: 'var(--status-danger)',
+                      fontSize: '0.78rem',
+                      marginBottom: 8,
+                    }}>
+                      {sttError}
+                    </div>
+                  )}
+
+                  {sttDraft && (
+                    <div>
+                      <div style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        color: 'var(--accent-gold, #c8a03c)',
+                        marginBottom: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}>
+                        <Sparkles size={11} />
+                        AI Transcript — Draft (review before saving)
+                      </div>
+                      <textarea
+                        className="input-field"
+                        rows={4}
+                        value={sttDraft}
+                        onChange={(e) => setSttDraft(e.target.value)}
+                        style={{ fontSize: '0.88rem', lineHeight: '26px', marginBottom: 8 }}
+                        placeholder="AI-generated transcript will appear here…"
+                      />
+                      <button
+                        type="button"
+                        onClick={insertSttDraftIntoNote}
+                        className="action-btn"
+                        style={{ width: '100%', justifyContent: 'center', fontSize: '0.82rem', padding: '7px 12px' }}
+                      >
+                        <Check size={14} /> Insert Transcript into Note ↓
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

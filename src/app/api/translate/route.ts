@@ -1,23 +1,26 @@
 import { NextResponse } from 'next/server';
+import { translateText, isSarvamConfigured } from '@/lib/sarvam';
 
 /**
  * Server side Telugu / Hindi / English translation API.
  *
- * Behaviour:
- *   1. If OPENAI_API_KEY is present, calls GPT 4o mini as a legal translator.
- *      Returns ONLY the translated text — no wrappers, no notices.
- *   2. If OPENAI_API_KEY is missing or the OpenAI call errors, returns a
- *      clear structured error the UI can surface so the advocate knows
- *      exactly why the translation did not run. We no longer silently
- *      fall back to a decorative rule based output that gets inserted
- *      into diary notes.
+ * Provider priority:
+ *   1. Sarvam AI (mayura:v1) — when SARVAM_API_KEY is set. India-first,
+ *      supports formal legal register, handles Telugu/Hindi natively.
+ *   2. OpenAI (gpt-4o-mini) — fallback when SARVAM_API_KEY is absent
+ *      but OPENAI_API_KEY is present.
+ *   3. Word-level dictionary fallback — only when allow_fallback=true and
+ *      no AI provider is configured. Not suitable for full sentence translation.
  *
- * All keys stay on the server and are never exposed to the browser bundle.
+ * All keys stay on the server and are NEVER exposed to the browser bundle.
+ *
+ * Response contract (unchanged from v1 so all callers keep working):
+ *   { success: true; translatedText: string; translated_text: string; provider: string }
+ *   or { error: string; provider?: string }
  */
 
-// Optional word level fallback dictionary for common legal terms in AP courts.
-// Only used if the caller explicitly asks for `allow_fallback: true` and
-// OpenAI is not available. Never enabled by default.
+// Optional word-level fallback dictionary for common legal terms.
+// Only used with allow_fallback=true when no AI provider is available.
 const TELUGU_LEGAL_TERMS: Record<string, string> = {
   'న్యాయస్థానం': 'Court of Law',
   'కోర్టు': 'Court',
@@ -43,9 +46,9 @@ const TELUGU_LEGAL_TERMS: Record<string, string> = {
 };
 
 const LANG_LABEL: Record<string, string> = {
-  te: 'Telugu',
-  hi: 'Hindi',
-  en: 'English',
+  te: 'Telugu', 'te-IN': 'Telugu',
+  hi: 'Hindi',  'hi-IN': 'Hindi',
+  en: 'English', 'en-IN': 'English',
 };
 
 export async function POST(request: Request) {
@@ -56,10 +59,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
   }
 
-  const sourceText = typeof body.text === 'string'
-    ? body.text
-    : typeof body.teluguText === 'string'
-    ? body.teluguText
+  const sourceText =
+    typeof body.text === 'string' ? body.text
+    : typeof body.teluguText === 'string' ? body.teluguText
     : '';
   const sourceLang = typeof body.source_lang === 'string' ? body.source_lang : 'te';
   const targetLang = typeof body.target_lang === 'string' ? body.target_lang : 'en';
@@ -73,29 +75,65 @@ export async function POST(request: Request) {
   const fromName = LANG_LABEL[sourceLang] || sourceLang;
   const toName = LANG_LABEL[targetLang] || targetLang;
 
-  // ── 1. OpenAI (preferred) ────────────────────────────────────────────────
-  const key = process.env.OPENAI_API_KEY;
-  const keyIsSet =
-    !!key &&
-    key.trim().length > 10 &&
-    key !== 'your_openai_api_key' &&
-    key.toLowerCase() !== 'your-openai-api-key';
+  // ── 1. Sarvam AI (primary, India-first) ──────────────────────────────────
+  if (isSarvamConfigured()) {
+    const result = await translateText({
+      text: trimmed,
+      sourceLang,
+      targetLang,
+      mode: 'formal',  // Legal text always uses formal register
+      isDemoMode: false,
+    });
 
-  if (keyIsSet) {
+    if (result.ok) {
+      const translation = result.data.translated_text;
+      return NextResponse.json({
+        success: true,
+        translatedText: translation,
+        translated_text: translation,
+        provider: 'sarvam',
+      });
+    }
+
+    // Surface rate limit / auth errors directly; fall through only for transient errors
+    if (result.code === 'auth_error' || result.code === 'quota_exhausted' || result.code === 'not_configured') {
+      return NextResponse.json({ error: result.message, provider: 'sarvam' }, { status: 503 });
+    }
+
+    if (result.code === 'rate_limited') {
+      return NextResponse.json({ error: result.message, provider: 'sarvam' }, { status: 429 });
+    }
+
+    if (result.code === 'validation_error') {
+      return NextResponse.json({ error: result.message, provider: 'sarvam' }, { status: 422 });
+    }
+
+    // Transient service error — fall through to OpenAI if available
+    console.warn('[translate] Sarvam transient error, attempting OpenAI fallback:', result.message);
+  }
+
+  // ── 2. OpenAI fallback ────────────────────────────────────────────────────
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const openaiKeyIsSet =
+    !!openaiKey &&
+    openaiKey.trim().length > 10 &&
+    openaiKey !== 'your_openai_api_key' &&
+    openaiKey.toLowerCase() !== 'your-openai-api-key';
+
+  if (openaiKeyIsSet) {
     try {
       const aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${key}`,
+          Authorization: `Bearer ${openaiKey}`,
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           messages: [
             {
               role: 'system',
-              content:
-                `You are a certified legal translator specialised in Indian court practice. Translate the user's ${fromName} text into ${toName}. Preserve every citation, date, party name, number and section reference verbatim. Return ONLY the translated text. Do not add prefaces, notices, disclaimers, headings, or any other framing.`,
+              content: `You are a certified legal translator specialised in Indian court practice. Translate the user's ${fromName} text into ${toName}. Preserve every citation, date, party name, number and section reference verbatim. Return ONLY the translated text. Do not add prefaces, notices, disclaimers, headings, or any other framing.`,
             },
             { role: 'user', content: trimmed },
           ],
@@ -120,7 +158,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // Surface the actual OpenAI error so the advocate knows why.
       let providerError = `OpenAI request failed with status ${aiResponse.status}.`;
       try {
         const errBody = await aiResponse.json();
@@ -135,19 +172,19 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── 2. No key configured. Do NOT invent output. ──────────────────────────
+  // ── 3. No provider configured ─────────────────────────────────────────────
   if (!allowFallback) {
     return NextResponse.json(
       {
         error:
-          'OPENAI_API_KEY is not set on the server. Add it to .env.local and restart the dev server to enable AI translation.',
+          'No translation provider is configured. Add SARVAM_API_KEY (recommended) or OPENAI_API_KEY to .env.local and restart the dev server.',
         provider: 'none',
       },
       { status: 503 },
     );
   }
 
-  // ── 3. Explicit opt in to word level fallback (rarely useful for full sentences) ──
+  // ── 4. Word-level dictionary fallback (explicit opt-in only) ───────────────
   let translated = trimmed;
   for (const [tel, eng] of Object.entries(TELUGU_LEGAL_TERMS)) {
     translated = translated.split(tel).join(eng);
@@ -158,6 +195,6 @@ export async function POST(request: Request) {
     translated_text: translated,
     provider: 'dictionary_fallback',
     warning:
-      'Word level dictionary substitution only. This is not a full sentence translation. Configure OPENAI_API_KEY for accurate translation.',
+      'Word-level dictionary substitution only. This is not a full sentence translation. Configure SARVAM_API_KEY for accurate translation.',
   });
 }
