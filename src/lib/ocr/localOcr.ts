@@ -53,6 +53,18 @@ function asTextFromPdfBytes(bytes: Uint8Array): string {
   return chunks.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+function isLikelySelectableText(text: string): boolean {
+  if (text.length < 20 || text.length > 200_000) return false;
+
+  let controlChars = 0;
+  for (const char of text) {
+    const code = char.charCodeAt(0);
+    if (code < 32 && code !== 9 && code !== 10 && code !== 13) controlChars++;
+  }
+
+  return controlChars / text.length <= 0.02;
+}
+
 /**
  * Extracts selectable text from a PDF file locally without calling external OCR.
  * Returns the extracted text string if present (>= 20 characters), or null if the PDF is scanned/image-only.
@@ -63,7 +75,7 @@ export async function extractSelectablePdfText(file: File): Promise<string | nul
   try {
     const buffer = await file.arrayBuffer();
     const selectable = asTextFromPdfBytes(new Uint8Array(buffer));
-    return selectable.length >= 20 ? selectable : null;
+    return isLikelySelectableText(selectable) ? selectable : null;
   } catch {
     return null;
   }
@@ -111,7 +123,7 @@ export async function extractDocumentText(file: File): Promise<LocalOcrResult> {
     try {
       const buffer = await file.arrayBuffer();
       const selectable = asTextFromPdfBytes(new Uint8Array(buffer));
-      if (selectable.length >= 20) {
+      if (isLikelySelectableText(selectable)) {
         return {
           text: selectable,
           method: 'pdf_text',

@@ -166,8 +166,10 @@ export type SarvamDocAIJobStatus =
 export interface SarvamDocAIJobResponse {
   job_id: string;
   status: SarvamDocAIJobStatus;
-  download_url?: string;
+  /** Completion status may include inline output; the download URL is returned by /download-url as `url`. */
   output?: string;
+  download_url?: string;
+  url?: string;
   error?: string;
   request_id?: string;
 }

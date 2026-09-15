@@ -252,15 +252,18 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
 
       let extractedText = output ?? '';
 
-      // Fetch the output package via /download-url (returns presigned ZIP link)
+      // Fetch the output package via /download-url (returns a presigned ZIP link in `url`).
       try {
-        const dlResult = await sarvamGet<{ download_url?: string }>(
+        const dlResult = await sarvamGet<{ url?: string; download_url?: string }>(
           `/doc-ai/v1/job/${job_id}/download-url`,
           { timeoutMs: 15_000 }
         );
 
-        if (dlResult.ok && dlResult.data.download_url) {
-          const zipRes = await fetch(dlResult.data.download_url);
+        const downloadUrl = dlResult.ok
+          ? (dlResult.data.url ?? dlResult.data.download_url)
+          : undefined;
+        if (downloadUrl) {
+          const zipRes = await fetch(downloadUrl);
           if (zipRes.ok) {
             const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
             const parsedMd = extractMarkdownFromZip(zipBuffer);
