@@ -42,6 +42,7 @@ const secretTokens = [
   'SUPABASE_SERVICE_ROLE_KEY',
   'OPENAI_API_KEY',
   'WHATSAPP_API_KEY',
+  'SARVAM_API_KEY',
 ];
 
 function scanFiles(dir) {
