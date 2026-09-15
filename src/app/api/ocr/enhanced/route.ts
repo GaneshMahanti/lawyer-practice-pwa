@@ -62,13 +62,6 @@ async function handleSarvamDocAI(
   userId: string,
   service: any
 ) {
-  if (!isSarvamConfigured()) {
-    return NextResponse.json(
-      { error: 'SARVAM_API_KEY is not configured. Add it to .env.local to enable AI document extraction.' },
-      { status: 503 }
-    );
-  }
-
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -89,6 +82,26 @@ async function handleSarvamDocAI(
     return NextResponse.json(
       { error: 'No file provided. Include a "file" field in the multipart form.' },
       { status: 400 }
+    );
+  }
+
+  if (!isSarvamConfigured()) {
+    const demoResult = await extractDocumentText({
+      fileBlob: fileEntry,
+      isDemoMode: true,
+    });
+    if (demoResult.ok) {
+      return NextResponse.json({
+        text: demoResult.data.text,
+        provider: 'demo_docai',
+        warning:
+          'Demo Mode: No SARVAM_API_KEY configured on this server. Add SARVAM_API_KEY to environment variables for live Sarvam Document AI.',
+      });
+    }
+
+    return NextResponse.json(
+      { error: 'SARVAM_API_KEY is not configured. Add it to environment variables.' },
+      { status: 503 }
     );
   }
 
@@ -255,9 +268,22 @@ async function handleJsonPath(
 
   // ── 2. OpenAI Vision (fallback when Sarvam not configured or failed) ───────
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey || apiKey === 'your_openai_api_key') {
+    const demoResult = await extractDocumentText({
+      fileBlob: new Blob(['demo']),
+      isDemoMode: true,
+    });
+    if (demoResult.ok) {
+      return NextResponse.json({
+        text: demoResult.data.text,
+        provider: 'demo_docai',
+        warning:
+          'Demo Mode: No OCR provider configured on this server. Add SARVAM_API_KEY in environment variables for live Sarvam Document AI.',
+      });
+    }
+
     return NextResponse.json(
-      { error: 'No OCR provider is configured on this server. Add SARVAM_API_KEY (recommended) or OPENAI_API_KEY to .env.local.' },
+      { error: 'No OCR provider is configured on this server. Add SARVAM_API_KEY in environment variables.' },
       { status: 503 }
     );
   }

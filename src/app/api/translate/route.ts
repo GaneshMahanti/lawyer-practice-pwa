@@ -172,12 +172,33 @@ export async function POST(request: Request) {
     }
   }
 
-  // ── 3. No provider configured ─────────────────────────────────────────────
+  // ── 3. Demo / Unconfigured Fallback ──────────────────────────────────────
+  // When no API key is configured on the server (e.g. on cloud deployment before env vars are set),
+  // return a mock translation preview so developers and demo users can test the UI end-to-end.
+  const demoResult = await translateText({
+    text: trimmed,
+    sourceLang,
+    targetLang,
+    mode: 'formal',
+    isDemoMode: true,
+  });
+
+  if (demoResult.ok) {
+    return NextResponse.json({
+      success: true,
+      translatedText: demoResult.data.translated_text,
+      translated_text: demoResult.data.translated_text,
+      provider: 'demo',
+      warning:
+        'Demo Mode: No SARVAM_API_KEY found on this server. Add SARVAM_API_KEY in Vercel Project Settings → Environment Variables (or .env.local locally) to enable live AI translation.',
+    });
+  }
+
   if (!allowFallback) {
     return NextResponse.json(
       {
         error:
-          'No translation provider is configured. Add SARVAM_API_KEY (recommended) or OPENAI_API_KEY to .env.local and restart the dev server.',
+          'No translation provider is configured. Add SARVAM_API_KEY in environment variables.',
         provider: 'none',
       },
       { status: 503 },

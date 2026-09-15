@@ -10,6 +10,6 @@ export function isAnonymousUser(user: User | null | undefined): boolean {
 }
 
 export function isRealAppUser(user: User | null | undefined): boolean {
-  const role = user?.app_metadata?.role;
+  const role = (user?.app_metadata?.role || user?.user_metadata?.role || '') as string;
   return !isAnonymousUser(user) && (role === 'developer' || role === 'lawyer');
 }

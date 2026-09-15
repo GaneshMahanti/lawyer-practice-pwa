@@ -47,9 +47,25 @@ export async function POST(request: Request) {
   }
 
   if (!isSarvamConfigured()) {
+    const demoResult = await transliterateText({
+      text,
+      sourceLang,
+      targetLang,
+      numeralsFormat,
+      isDemoMode: true,
+    });
+    if (demoResult.ok) {
+      return NextResponse.json({
+        transliterated_text: demoResult.data.transliterated_text,
+        provider: 'demo',
+        warning:
+          'Demo Mode: No SARVAM_API_KEY configured on this server. Add SARVAM_API_KEY to environment variables for live transliteration.',
+      });
+    }
+
     return NextResponse.json(
       {
-        error: 'SARVAM_API_KEY is not configured. Add it to .env.local to enable Transliteration.',
+        error: 'SARVAM_API_KEY is not configured. Add it to environment variables.',
         code: 'not_configured',
       },
       { status: 503 }

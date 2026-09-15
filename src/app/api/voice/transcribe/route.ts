@@ -74,11 +74,27 @@ export async function POST(request: NextRequest) {
     ? (rawMode as SarvamSTTMode)
     : 'codemix';
 
-  // ── Key check ─────────────────────────────────────────────────────────────
+  // ── Key check with Demo Mode fallback ─────────────────────────────────────
   if (!isSarvamConfigured()) {
+    const demoResult = await transcribeAudio({
+      audioBlob: fileEntry,
+      languageCode,
+      mode,
+      isDemoMode: true,
+    });
+    if (demoResult.ok) {
+      return NextResponse.json({
+        transcript: demoResult.data.transcript,
+        language_code: demoResult.data.language_code ?? languageCode,
+        provider: 'demo',
+        warning:
+          'Demo Mode: No SARVAM_API_KEY configured on this server. Add SARVAM_API_KEY to environment variables for live AI transcription.',
+      });
+    }
+
     return NextResponse.json(
       {
-        error: 'SARVAM_API_KEY is not configured on this server. Add it to .env.local to enable AI transcription.',
+        error: 'SARVAM_API_KEY is not configured on this server. Add it to environment variables.',
         code: 'not_configured',
       },
       { status: 503 }
