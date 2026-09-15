@@ -11,7 +11,7 @@ import {
   loadClients,
   loadMatters,
 } from '@/lib/data/repository';
-import { extractDocumentText } from '@/lib/ocr/localOcr';
+import { extractSelectablePdfText } from '@/lib/ocr/localOcr';
 import type { DiaryEntry, Client, Matter } from '@/lib/types/database';
 import {
   BookOpen,
@@ -402,36 +402,39 @@ function UnifiedNotesContent() {
       reader.readAsDataURL(file);
     });
 
-  const runEnhancedServerOcr = async (
+  const runSarvamDocAiOcr = async (
     file: File,
-  ): Promise<{ text: string; warning?: string } | { text: ''; error: string }> => {
-    if (!file.type.startsWith('image/')) {
-      return { text: '', error: 'Enhanced OCR supports image files (JPG/PNG/HEIC). For PDFs, export pages as images first.' };
-    }
+  ): Promise<{ text: string; warning?: string } | { text: ''; error: string; retryable?: boolean }> => {
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const form = new FormData();
+      form.append('consent', 'true');
+      form.append('file', file, file.name);
+      if (selectedMatterId) form.append('matterId', selectedMatterId);
+
       const res = await fetch('/api/ocr/enhanced', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          consent: true,
-          imageBase64: dataUrl,
-          matterId: selectedMatterId || null,
-        }),
+        body: form,
       });
+
       const data = await res.json();
-      if (res.status === 403) {
-        return { text: '', error: 'Enhanced OCR is not available in Demo Mode. Sign in as an approved advocate to scan documents on desktop.' };
-      }
-      if (res.status === 503) {
-        return { text: '', error: 'Enhanced OCR is not configured on this server. Configure the OpenAI Vision key in .env.local and restart the app.' };
-      }
       if (!res.ok || !data.text) {
-        return { text: '', error: data.error || 'Enhanced OCR could not extract text from this image.' };
+        return {
+          text: '',
+          error: data.error || 'Sarvam Document AI extraction failed. Please try again.',
+          retryable: data.retryable ?? true,
+        };
       }
-      return { text: String(data.text).trim(), warning: data.warning };
+
+      return {
+        text: String(data.text).trim(),
+        warning: data.warning || '✦ Sarvam Document AI Draft — review against original document before use.',
+      };
     } catch (err) {
-      return { text: '', error: err instanceof Error ? err.message : 'Enhanced OCR failed.' };
+      return {
+        text: '',
+        error: err instanceof Error ? err.message : 'Document AI connection failed. Check your network.',
+        retryable: true,
+      };
     }
   };
 
@@ -440,29 +443,25 @@ function UnifiedNotesContent() {
     setScanning(true);
     setScanWarning('');
     setTranslateResult('');
-    try {
-      // 1. Try on-device OCR first — free, works offline, keeps document local.
-      const ocr = await extractDocumentText(scanFile);
-      let extracted = (ocr.text || '').trim();
-      let ocrNotice = ocr.warning || '';
-      let usedServer = false;
 
-      // 2. If on-device extraction returned nothing (typical on desktop
-      //    browsers without TextDetector), fall back to server OCR.
-      if (!extracted) {
-        const serverResult = await runEnhancedServerOcr(scanFile);
+    try {
+      let extracted = '';
+      let ocrNotice = '';
+
+      // 1. If PDF has selectable machine-readable text, extract locally and skip OCR
+      const selectableText = await extractSelectablePdfText(scanFile);
+      if (selectableText) {
+        extracted = selectableText.trim();
+        ocrNotice = 'Selectable text extracted directly from document byte stream (lossless). Review for formatting.';
+      } else {
+        // 2. Scanned image or scanned PDF: send directly to Sarvam Document AI
+        const serverResult = await runSarvamDocAiOcr(scanFile);
         if (serverResult.text) {
           extracted = serverResult.text;
-          usedServer = true;
-          ocrNotice = ('warning' in serverResult && serverResult.warning)
-            ? serverResult.warning
-            : 'Extracted using enhanced server OCR — the image was sent to the OpenAI Vision service for processing.';
+          ocrNotice = ('warning' in serverResult ? serverResult.warning : undefined) || '✦ Sarvam Document AI Draft — review against original document before use.';
         } else if ('error' in serverResult && serverResult.error) {
           setScanExtracted('');
-          setScanWarning(
-            (ocr.warning ? ocr.warning + ' ' : '')
-              + serverResult.error,
-          );
+          setScanWarning(serverResult.error);
           return;
         }
       }
@@ -471,14 +470,11 @@ function UnifiedNotesContent() {
       if (ocrNotice) setScanWarning(ocrNotice);
 
       if (!extracted) {
-        setScanWarning(
-          ocr.warning
-            || 'No text could be extracted from this document. Try a clearer photo, or type the text.',
-        );
+        setScanWarning('No text could be extracted from this document. Please try a clearer scan or type the text.');
         return;
       }
 
-      // 3. Auto-translate the extracted text
+      // 3. Auto-translate the extracted text via chunked Sarvam translate
       setTranslating(true);
       const res = await fetch('/api/translate', {
         method: 'POST',
@@ -495,11 +491,8 @@ function UnifiedNotesContent() {
       } else {
         setTranslateResult(data.error || 'Translation failed.');
       }
-      if (usedServer && !scanWarning) {
-        setScanWarning('Extracted using enhanced server OCR — the image was sent to the OpenAI Vision service for processing.');
-      }
     } catch (err) {
-      setScanWarning(err instanceof Error ? err.message : 'Scan failed. Please try again.');
+      setScanWarning(err instanceof Error ? err.message : 'Scan processing failed. Please try again.');
     } finally {
       setScanning(false);
       setTranslating(false);
@@ -905,10 +898,9 @@ function UnifiedNotesContent() {
                       <span>Take a photo or upload a Telugu document</span>
                     </button>
                     <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.45 }}>
-                      Scans first try on-device OCR (private, works offline). If your browser
-                      can&apos;t read the image, the app falls back to Sarvam Document AI
-                      (when SARVAM_API_KEY is set) or OpenAI Vision — only available when
-                      signed in as an approved advocate.
+                      Scanned images and PDFs are digitized accurately using Sarvam Document AI
+                      (Sarvam Vision 1.5). Text-based PDFs with selectable text are extracted directly.
+                      All extracted drafts require advocate review.
                     </p>
                   </>
                 ) : (

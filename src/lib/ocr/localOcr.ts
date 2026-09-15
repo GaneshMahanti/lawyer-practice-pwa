@@ -54,6 +54,22 @@ function asTextFromPdfBytes(bytes: Uint8Array): string {
 }
 
 /**
+ * Extracts selectable text from a PDF file locally without calling external OCR.
+ * Returns the extracted text string if present (>= 20 characters), or null if the PDF is scanned/image-only.
+ */
+export async function extractSelectablePdfText(file: File): Promise<string | null> {
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  if (!isPdf) return null;
+  try {
+    const buffer = await file.arrayBuffer();
+    const selectable = asTextFromPdfBytes(new Uint8Array(buffer));
+    return selectable.length >= 20 ? selectable : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Local-first Image OCR using browser native Shape Detection API (TextDetector)
  * or local Canvas pixel thresholding if supported.
  */

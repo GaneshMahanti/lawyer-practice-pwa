@@ -129,8 +129,9 @@ export interface SarvamTransliterateResponse {
 
 /**
  * Output format for Document AI digitisation result.
+ * Official docs specify 'md', 'html', or 'json'.
  */
-export type SarvamDocAIOutputFormat = 'markdown' | 'json' | 'html';
+export type SarvamDocAIOutputFormat = 'md' | 'json' | 'html';
 
 /**
  * Request payload to start a Document AI digitise job.
@@ -140,24 +141,33 @@ export interface SarvamDocAIRequest {
   /** PDF, JPEG, or PNG file blob. Max 50MB. */
   file: Blob;
   output_format?: SarvamDocAIOutputFormat;
+  language?: SarvamLanguageCode | string;
   /** Configurable via SARVAM_DOCAI_MODEL — pass only when the API requires an explicit model selector. */
   model?: string;
-  pages?: number[];              // specific pages to process (1-indexed), max 50
+  pages?: number[];              // specific pages to process (1-indexed), max 10
 }
 
 export type SarvamDocAIJobStatus =
   | 'PENDING'
   | 'IN_PROGRESS'
   | 'COMPLETED'
+  | 'PARTIALLY_COMPLETED'
   | 'FAILED'
-  | 'CANCELLED';
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'partially_completed'
+  | 'failed'
+  | 'rejected'
+  | 'cancelled';
 
 export interface SarvamDocAIJobResponse {
   job_id: string;
   status: SarvamDocAIJobStatus;
-  /** Present when status === 'COMPLETED' */
+  download_url?: string;
   output?: string;
-  /** Present when status === 'FAILED' */
   error?: string;
   request_id?: string;
 }

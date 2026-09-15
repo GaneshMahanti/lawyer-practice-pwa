@@ -11,7 +11,7 @@ import {
   loadClients,
   loadMatters,
 } from '@/lib/data/repository';
-import { extractDocumentText } from '@/lib/ocr/localOcr';
+import { extractSelectablePdfText } from '@/lib/ocr/localOcr';
 import type { DocumentRecord, Client, Matter } from '@/lib/types/database';
 
 function DocumentTranslationContent() {
@@ -69,7 +69,8 @@ function DocumentTranslationContent() {
     ? matters.filter((m) => m.client_id === selectedClientId)
     : matters;
 
-  // File upload and local-first extraction
+  // File upload — for machine-readable PDFs extract text locally;
+  // for scanned images/PDFs prompt the lawyer to use AI Extract (Sarvam Document AI).
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -79,6 +80,7 @@ function DocumentTranslationContent() {
     setOcrLoading(true);
     setOcrNotice(null);
     setEnhancedError(null);
+    setTeluguText('');
 
     // If image, create preview data URL
     if (file.type.startsWith('image/')) {
@@ -92,19 +94,23 @@ function DocumentTranslationContent() {
     }
 
     try {
-      const res = await extractDocumentText(file);
-      if (res.text) {
-        setTeluguText(res.text);
-        setOcrMethod(res.method);
-        if (res.warning) setOcrNotice(res.warning);
-      } else {
-        // No selectable text found — show the AI extraction option
-        setOcrMethod(res.method);
-        if (res.warning) setOcrNotice(res.warning);
+      // Only try selectable text extraction for PDFs — images are always scanned
+      if (file.type === 'application/pdf') {
+        const selectableText = await extractSelectablePdfText(file);
+        if (selectableText && selectableText.trim().length > 20) {
+          setTeluguText(selectableText.trim());
+          setOcrMethod('selectable_pdf');
+          setOcrNotice('Selectable text extracted directly from PDF byte stream (lossless). Review for formatting.');
+          setOcrLoading(false);
+          return;
+        }
       }
+      // Scanned image or scanned PDF: prompt lawyer to use AI Extract
+      setOcrMethod('needs_ocr');
+      setOcrNotice('Scanned document detected. Click "AI Extract" to extract text with Sarvam Document AI.');
     } catch (err) {
-      console.error('Local text extraction failed:', err);
-      setOcrNotice('Notice: Local document reading could not complete. You can type or paste the text directly, or use AI Extract.');
+      console.error('[documents] File read error:', err);
+      setOcrNotice('Could not read the file. Please try again or type/paste the text directly.');
     } finally {
       setOcrLoading(false);
     }
@@ -151,8 +157,8 @@ function DocumentTranslationContent() {
 
       if (data.text) {
         setTeluguText(data.text);
-        setOcrMethod(data.provider === 'sarvam_docai' ? 'sarvam_docai' : 'enhanced_external');
-        setOcrNotice(data.warning || 'AI-Extracted Text Draft generated. Review against the original document before use.');
+        setOcrMethod(data.provider === 'demo_docai' ? 'demo_docai' : 'sarvam_docai');
+        setOcrNotice(data.warning || '✦ Sarvam Document AI Draft — review against original document before use.');
       }
     } catch (err) {
       console.error('[documents] Enhanced OCR error:', err);
@@ -170,7 +176,7 @@ function DocumentTranslationContent() {
     );
   };
 
-  // Translation handler
+  // Translation handler — uses /api/translate with sarvam-translate:v1 (formal mode)
   const handleTranslate = async () => {
     if (!teluguText.trim()) return;
     setTranslating(true);
@@ -179,18 +185,22 @@ function DocumentTranslationContent() {
       const res = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teluguText }),
+        body: JSON.stringify({
+          text: teluguText.trim(),
+          source_lang: 'te',
+          target_lang: 'en',
+        }),
       });
 
       const data = await res.json();
-      if (data.translatedText) {
-        setEnglishText(data.translatedText);
+      if (res.ok && data.translated_text) {
+        setEnglishText(data.translated_text);
       } else {
-        setEnglishText('Translation completed. Refer to verified Telugu text on left.');
+        setEnglishText(data.error || 'Translation failed. Please try again.');
       }
     } catch (err) {
-      console.error('Translation error:', err);
-      setEnglishText('Notice: Translation server call failed. Showing preliminary review text.');
+      console.error('[documents] Translation error:', err);
+      setEnglishText('Translation service unavailable. Please check your connection.');
     } finally {
       setTranslating(false);
     }
@@ -409,19 +419,20 @@ function DocumentTranslationContent() {
                       borderRadius: 4,
                       backgroundColor:
                         ocrMethod === 'sarvam_docai' ? 'rgba(99,102,241,0.12)'
-                        : ocrMethod === 'enhanced_external' ? 'var(--accent-gold-soft, #fef3c7)'
+                        : ocrMethod === 'demo_docai' ? 'rgba(234,179,8,0.12)'
                         : 'var(--bg-surface-elevated)',
                       color:
                         ocrMethod === 'sarvam_docai' ? '#6366f1'
-                        : ocrMethod === 'enhanced_external' ? '#92400e'
+                        : ocrMethod === 'demo_docai' ? '#ca8a04'
                         : 'var(--text-secondary)',
                       fontWeight: 600,
                     }}
                   >
+                    {ocrMethod === 'selectable_pdf' && 'Selectable PDF Text'}
                     {ocrMethod === 'pdf_text' && 'Selectable PDF Text'}
-                    {ocrMethod === 'image_ocr' && 'On-Device OCR'}
                     {ocrMethod === 'sarvam_docai' && '✦ Sarvam Doc AI (Draft)'}
-                    {ocrMethod === 'enhanced_external' && 'Enhanced OCR (Draft)'}
+                    {ocrMethod === 'demo_docai' && '✦ Sarvam Doc AI (Demo Mock)'}
+                    {ocrMethod === 'needs_ocr' && 'Scanned — AI Extract Required'}
                     {ocrMethod === 'empty' && 'Text Entry Needed'}
                   </span>
                 )}
@@ -450,6 +461,22 @@ function DocumentTranslationContent() {
                     {enhancedLoading ? 'Extracting with AI…' : '✦ AI Extract (Sarvam DocAI)'}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* AI Extract button for scanned PDFs (no image preview) */}
+            {uploadedFile && !uploadedImagePreview && ocrMethod === 'needs_ocr' && (
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="action-btn action-btn-primary"
+                  style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  disabled={enhancedLoading || ocrLoading}
+                  onClick={() => setShowConsentModal(true)}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                  {enhancedLoading ? 'Extracting with AI…' : '✦ AI Extract (Sarvam DocAI)'}
+                </button>
               </div>
             )}
 

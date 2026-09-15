@@ -85,10 +85,96 @@ function demoTranslation(
   };
 }
 
+// ── Chunking helper ──────────────────────────────────────────────────────────
+
+/**
+ * Splits text into logical chunks of at most maxChars (default 1800 to stay safely within the 2000 limit).
+ * Prioritizes splitting on:
+ *   1. Paragraph breaks (\n\n)
+ *   2. Single line breaks (\n)
+ *   3. Sentence endings ( ।, ., ?, ! )
+ *   4. Word boundaries (spaces)
+ * Preserves paragraph and sentence structure upon reassembly.
+ */
+export function chunkTextForTranslation(text: string, maxChars = 1800): string[] {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) {
+    return [trimmed];
+  }
+
+  const chunks: string[] = [];
+  // Split first by paragraphs
+  const paragraphs = trimmed.split(/\n\s*\n/);
+  let currentChunk = '';
+
+  for (const para of paragraphs) {
+    const p = para.trim();
+    if (!p) continue;
+
+    if (p.length > maxChars) {
+      // Paragraph itself exceeds maxChars; flush current chunk first
+      if (currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = '';
+      }
+
+      // Split paragraph by sentences (including Indic danda '।')
+      const sentences = p.split(/(?<=[।\.?!;\n])\s+/);
+      let sentChunk = '';
+
+      for (const sent of sentences) {
+        const s = sent.trim();
+        if (!s) continue;
+
+        if (s.length > maxChars) {
+          // Sentence itself exceeds maxChars; flush sentChunk
+          if (sentChunk) {
+            chunks.push(sentChunk.trim());
+            sentChunk = '';
+          }
+
+          // Split sentence by words
+          const words = s.split(/\s+/);
+          let wordChunk = '';
+          for (const w of words) {
+            if ((wordChunk + ' ' + w).trim().length <= maxChars) {
+              wordChunk = (wordChunk + ' ' + w).trim();
+            } else {
+              if (wordChunk) chunks.push(wordChunk);
+              wordChunk = w;
+            }
+          }
+          if (wordChunk) chunks.push(wordChunk);
+        } else if ((sentChunk + ' ' + s).trim().length <= maxChars) {
+          sentChunk = (sentChunk ? sentChunk + ' ' : '') + s;
+        } else {
+          if (sentChunk) chunks.push(sentChunk.trim());
+          sentChunk = s;
+        }
+      }
+
+      if (sentChunk) {
+        chunks.push(sentChunk.trim());
+      }
+    } else if ((currentChunk + '\n\n' + p).trim().length <= maxChars) {
+      currentChunk = currentChunk ? currentChunk + '\n\n' + p : p;
+    } else {
+      if (currentChunk) chunks.push(currentChunk.trim());
+      currentChunk = p;
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk.trim());
+  }
+
+  return chunks.filter(Boolean);
+}
+
 // ── Public translate helper ───────────────────────────────────────────────────
 
 export interface TranslateOptions {
-  /** Source text to translate. Max 2000 characters. */
+  /** Source text to translate. */
   text: string;
   /** Source language code (short or BCP-47 form). Default: 'te-IN' */
   sourceLang?: string;
@@ -110,6 +196,10 @@ export type TranslateResult = SarvamOutcome<SarvamTranslateResponse>;
 
 /**
  * Translate text using the Sarvam AI translation service.
+ * Supports long documents through automatic paragraph-preserving chunking.
+ *
+ * Primary model: sarvam-translate:v1 with formal mode (supports up to 2000 chars per request).
+ * Optional model: mayura:v1 (supports up to 1000 chars per request).
  *
  * Returns a SarvamOutcome — check `.ok` before accessing `.data.translated_text`.
  * Translations are always drafts and must be reviewed by the lawyer.
@@ -122,7 +212,7 @@ export async function translateText(options: TranslateOptions): Promise<Translat
     mode = 'formal',
     speakerGender,
     isDemoMode = false,
-    timeoutMs = 20_000,
+    timeoutMs = 30_000,
   } = options;
 
   const src = normaliseLang(sourceLang);
@@ -154,14 +244,6 @@ export async function translateText(options: TranslateOptions): Promise<Translat
     };
   }
 
-  if (trimmed.length > MAX_INPUT_CHARS) {
-    return {
-      ok: false,
-      message: `Text is too long for translation (${trimmed.length} chars). Please limit to ${MAX_INPUT_CHARS} characters per request.`,
-      code: 'validation_error',
-    };
-  }
-
   if (src === tgt) {
     // No-op: return the source text as-is
     return {
@@ -174,7 +256,57 @@ export async function translateText(options: TranslateOptions): Promise<Translat
     };
   }
 
-  // ── Build request payload ──────────────────────────────────────────────────
+  // Determine per-request chunk limit based on model:
+  // sarvam-translate:v1 supports up to 2000 chars (safe chunk: 1800)
+  // mayura:v1 supports up to 1000 chars (safe chunk: 900)
+  const isMayura = SARVAM_TRANSLATE_MODEL.includes('mayura');
+  const safeChunkLimit = isMayura ? 900 : 1800;
+
+  // If text exceeds safe limit, chunk and translate sequentially
+  if (trimmed.length > safeChunkLimit) {
+    const chunks = chunkTextForTranslation(trimmed, safeChunkLimit);
+    const translatedChunks: string[] = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkPayload: Record<string, unknown> = {
+        input: chunks[i],
+        source_language_code: src,
+        target_language_code: tgt,
+        model: SARVAM_TRANSLATE_MODEL,
+        mode,
+        enable_preprocessing: true,
+      };
+
+      if (speakerGender) {
+        chunkPayload.speaker_gender = speakerGender;
+      }
+
+      const chunkRes = await sarvamPost<SarvamTranslateResponse>(
+        '/translate',
+        chunkPayload,
+        { timeoutMs }
+      );
+
+      if (!chunkRes.ok) {
+        return chunkRes;
+      }
+
+      translatedChunks.push(chunkRes.data.translated_text);
+    }
+
+    // Reassemble preserving paragraph breaks
+    const joinedText = translatedChunks.join('\n\n');
+    return {
+      ok: true,
+      data: {
+        translated_text: joinedText,
+        source_language_code: src,
+        target_language_code: tgt,
+      },
+    };
+  }
+
+  // Single-request translation for standard text
   const payload: Record<string, unknown> = {
     input: trimmed,
     source_language_code: src,
@@ -188,6 +320,5 @@ export async function translateText(options: TranslateOptions): Promise<Translat
     payload.speaker_gender = speakerGender;
   }
 
-  // ── Call Sarvam Translate endpoint ────────────────────────────────────────
   return sarvamPost<SarvamTranslateResponse>('/translate', payload, { timeoutMs });
 }

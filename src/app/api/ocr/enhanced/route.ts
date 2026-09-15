@@ -1,44 +1,45 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { requireRealAppUser } from '@/lib/auth/requestUser';
+import { getRequestUser } from '@/lib/auth/requestUser';
+import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { createServiceClient } from '@/lib/supabase/service';
 import { extractDocumentText, isSarvamConfigured, DOC_AI_MAX_PAGES } from '@/lib/sarvam';
 
 /**
  * POST /api/ocr/enhanced
  *
- * Server-side OCR with Sarvam Document AI as PRIMARY provider.
- * Falls back to OpenAI Vision only when Sarvam is not configured.
+ * Server-side OCR powered exclusively by Sarvam Document AI (Sarvam Vision 1.5).
  *
- * Security:
- *   - requireRealAppUser blocks demo/anonymous users (consent & auth gate).
- *   - Requires explicit advocate consent (`consent: true` in request body).
- *   - NEVER logs document text content — only metadata in external_ocr_audit.
- *   - API keys stay server-side; never returned in responses or logs.
- *
- * Request (JSON):
- *   {
- *     consent: true,               // Required
- *     matterId?: string | null,    // For audit metadata
- *     imageBase64?: string,        // Base64 data URL for OpenAI Vision fallback (images only)
- *     fileBlob?: never,            // Use /api/ocr/sarvam for direct file upload
- *   }
- *
- * When Sarvam is configured (SARVAM_API_KEY set):
- *   Accepts multipart/form-data with 'file' field (PDF, JPEG, PNG).
- *   Falls back to JSON + imageBase64 for backward compatibility (OpenAI Vision path).
+ * Requirements:
+ *   1. Sarvam Document AI is the primary OCR provider for scanned images (JPEG/PNG) and PDFs.
+ *   2. Zero OpenAI fallback — no silent third-party degradation.
+ *   3. If Sarvam is unavailable, returns a clear retryable error state.
+ *   4. Demo Mode may use deterministic mock OCR, but authenticated real advocates
+ *      with SARVAM_API_KEY NEVER receive demo OCR text.
+ *   5. Accepts original PDF, JPEG, and PNG files via multipart/form-data (or JSON base64).
+ *   6. Audit metadata only (never logs document text).
  *
  * Response (JSON):
- *   { text: string; warning?: string; provider: 'sarvam_docai' | 'openai_vision' }
+ *   { text: string; warning?: string; provider: 'sarvam_docai' | 'demo_docai'; jobId?: string }
  *   or { error: string }
  */
 
 export async function POST(request: NextRequest) {
   // ── Auth gate ─────────────────────────────────────────────────────────────
-  const user = await requireRealAppUser(request);
+  const user = await getRequestUser(request);
   if (!user) {
     return NextResponse.json(
-      { error: 'Enhanced OCR is limited to approved advocates. Demo Mode cannot use external OCR.' },
+      { error: 'Authentication required. Please sign in.' },
+      { status: 401 }
+    );
+  }
+
+  const isDemo = isAnonymousUser(user);
+  const isReal = isRealAppUser(user);
+
+  if (!isDemo && !isReal) {
+    return NextResponse.json(
+      { error: 'Enhanced Document AI is limited to approved advocates.' },
       { status: 403 }
     );
   }
@@ -46,20 +47,21 @@ export async function POST(request: NextRequest) {
   const service = createServiceClient() as any;
   const contentType = request.headers.get('content-type') ?? '';
 
-  // ── Route: multipart/form-data (Sarvam DocAI path) ────────────────────────
+  // ── Route: multipart/form-data (primary path for PDF & image files) ─────────
   if (contentType.includes('multipart/form-data')) {
-    return handleSarvamDocAI(request, user.id, service);
+    return handleMultipartOcr(request, user.id, isDemo, service);
   }
 
-  // ── Route: JSON body (backward-compat path for Documents page) ────────────
-  return handleJsonPath(request, user.id, service);
+  // ── Route: JSON body (backward compatibility for data URLs) ─────────────────
+  return handleJsonOcr(request, user.id, isDemo, service);
 }
 
-// ── Sarvam Document AI handler ────────────────────────────────────────────────
+// ── Multipart form handler ────────────────────────────────────────────────────
 
-async function handleSarvamDocAI(
+async function handleMultipartOcr(
   request: NextRequest,
   userId: string,
+  isDemo: boolean,
   service: any
 ) {
   let formData: FormData;
@@ -72,7 +74,7 @@ async function handleSarvamDocAI(
   const consent = formData.get('consent');
   if (consent !== 'true') {
     return NextResponse.json(
-      { error: 'Explicit advocate consent is required before sending a document to enhanced external OCR.' },
+      { error: 'Explicit advocate consent is required before processing documents with Document AI.' },
       { status: 400 }
     );
   }
@@ -80,28 +82,8 @@ async function handleSarvamDocAI(
   const fileEntry = formData.get('file');
   if (!fileEntry || !(fileEntry instanceof Blob)) {
     return NextResponse.json(
-      { error: 'No file provided. Include a "file" field in the multipart form.' },
+      { error: 'No file provided. Include a "file" field (PDF, JPEG, or PNG) in the form data.' },
       { status: 400 }
-    );
-  }
-
-  if (!isSarvamConfigured()) {
-    const demoResult = await extractDocumentText({
-      fileBlob: fileEntry,
-      isDemoMode: true,
-    });
-    if (demoResult.ok) {
-      return NextResponse.json({
-        text: demoResult.data.text,
-        provider: 'demo_docai',
-        warning:
-          'Demo Mode: No SARVAM_API_KEY configured on this server. Add SARVAM_API_KEY to environment variables for live Sarvam Document AI.',
-      });
-    }
-
-    return NextResponse.json(
-      { error: 'SARVAM_API_KEY is not configured. Add it to environment variables.' },
-      { status: 503 }
     );
   }
 
@@ -109,9 +91,33 @@ async function handleSarvamDocAI(
     ? (formData.get('matterId') as string)
     : null;
 
+  // 1. Demo Mode: return deterministic mock OCR
+  if (isDemo) {
+    const demoResult = await extractDocumentText({
+      fileBlob: fileEntry,
+      isDemoMode: true,
+    });
+    return NextResponse.json({
+      text: demoResult.ok ? demoResult.data.text : '',
+      provider: 'demo_docai',
+      warning: 'Demo Mode: Deterministic mock extraction. Configure SARVAM_API_KEY in server environment for live Document AI.',
+    });
+  }
+
+  // 2. Real Advocate: must have SARVAM_API_KEY configured
+  if (!isSarvamConfigured()) {
+    return NextResponse.json(
+      {
+        error:
+          'SARVAM_API_KEY is not configured on this server. Add SARVAM_API_KEY to server environment variables to enable Document AI extraction.',
+      },
+      { status: 503 }
+    );
+  }
+
   const fileName = fileEntry instanceof File ? fileEntry.name : undefined;
 
-  // Pages guard: honour explicit page selection if provided
+  // Pages limit guard
   let pages: number[] | undefined;
   const pagesRaw = formData.get('pages');
   if (typeof pagesRaw === 'string') {
@@ -127,14 +133,14 @@ async function handleSarvamDocAI(
     const result = await extractDocumentText({
       fileBlob: fileEntry,
       fileName,
-      outputFormat: 'markdown',
+      outputFormat: 'md',
       pages,
       isDemoMode: false,
       pollTimeoutMs: 60_000,
     });
 
     if (!result.ok) {
-      // Audit failure metadata — never log text content
+      // Audit failure metadata only
       try {
         await service.from('external_ocr_audit').insert({
           owner_id: userId,
@@ -154,10 +160,13 @@ async function handleSarvamDocAI(
         : result.code === 'timeout' ? 504
         : 502;
 
-      return NextResponse.json({ error: result.message }, { status: httpStatus });
+      return NextResponse.json(
+        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { status: httpStatus }
+      );
     }
 
-    // Audit success metadata — NEVER log extracted text
+    // Audit success metadata
     try {
       await service.from('external_ocr_audit').insert({
         owner_id: userId,
@@ -173,7 +182,7 @@ async function handleSarvamDocAI(
       text: result.data.text,
       provider: 'sarvam_docai',
       jobId: result.data.jobId,
-      warning: 'AI-Extracted Text (Draft — review against original document before use).',
+      warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
     console.error('[ocr/enhanced] Sarvam DocAI error:', error);
@@ -185,30 +194,32 @@ async function handleSarvamDocAI(
         outcome: 'failure',
       });
     } catch {}
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI processing failed.' },
+      { error: error instanceof Error ? error.message : 'Document AI extraction failed. Please try again.', retryable: true },
       { status: 500 }
     );
   }
 }
 
-// ── JSON body path (backward-compat — existing Documents page calls) ──────────
+// ── JSON body handler (backward compatibility) ────────────────────────────────
 
-async function handleJsonPath(
+async function handleJsonOcr(
   request: NextRequest,
   userId: string,
+  isDemo: boolean,
   service: any
 ) {
   let body: { consent?: unknown; matterId?: unknown; imageBase64?: unknown };
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid request payload' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid JSON request payload' }, { status: 400 });
   }
 
   if (body.consent !== true) {
     return NextResponse.json(
-      { error: 'Explicit advocate consent is required before sending a document to enhanced external OCR.' },
+      { error: 'Explicit advocate consent is required before processing documents with Document AI.' },
       { status: 400 }
     );
   }
@@ -216,144 +227,97 @@ async function handleJsonPath(
   const imageBase64 = typeof body.imageBase64 === 'string' ? body.imageBase64 : null;
   if (!imageBase64) {
     return NextResponse.json(
-      { error: 'No image or document data provided for enhanced OCR.' },
+      { error: 'No image or document data provided for Document AI.' },
       { status: 400 }
     );
   }
 
   const matterId = typeof body.matterId === 'string' ? body.matterId : null;
 
-  // ── 1. Try Sarvam DocAI first when available (convert data URL to Blob) ───
-  if (isSarvamConfigured() && imageBase64.startsWith('data:')) {
-    try {
-      const [meta, b64data] = imageBase64.split(',');
-      const mimeMatch = meta.match(/data:([^;]+);/);
-      const mime = mimeMatch?.[1] ?? 'image/jpeg';
-
-      const byteChars = atob(b64data);
-      const byteArr = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArr[i] = byteChars.charCodeAt(i);
-      }
-      const blob = new Blob([byteArr], { type: mime });
-
-      const sarvamResult = await extractDocumentText({
-        fileBlob: blob,
-        outputFormat: 'markdown',
-        isDemoMode: false,
-        pollTimeoutMs: 60_000,
-      });
-
-      if (sarvamResult.ok && sarvamResult.data.text) {
-        try {
-          await service.from('external_ocr_audit').insert({
-            owner_id: userId,
-            matter_id: matterId,
-            provider: 'sarvam_docai',
-            outcome: 'success',
-          });
-        } catch {}
-        return NextResponse.json({
-          text: sarvamResult.data.text,
-          provider: 'sarvam_docai',
-          warning: 'AI-Extracted Text (Draft — review against original document before use).',
-        });
-      }
-      // Sarvam failed — fall through to OpenAI
-      console.warn('[ocr/enhanced] Sarvam DocAI unavailable, falling back to OpenAI Vision:', !sarvamResult.ok ? sarvamResult.message : 'empty text');
-    } catch (err) {
-      console.warn('[ocr/enhanced] Sarvam DocAI attempt failed, falling back to OpenAI:', err);
-    }
-  }
-
-  // ── 2. OpenAI Vision (fallback when Sarvam not configured or failed) ───────
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || apiKey === 'your_openai_api_key') {
+  // 1. Demo Mode
+  if (isDemo) {
     const demoResult = await extractDocumentText({
       fileBlob: new Blob(['demo']),
       isDemoMode: true,
     });
-    if (demoResult.ok) {
-      return NextResponse.json({
-        text: demoResult.data.text,
-        provider: 'demo_docai',
-        warning:
-          'Demo Mode: No OCR provider configured on this server. Add SARVAM_API_KEY in environment variables for live Sarvam Document AI.',
-      });
-    }
+    return NextResponse.json({
+      text: demoResult.ok ? demoResult.data.text : '',
+      provider: 'demo_docai',
+      warning: 'Demo Mode: Deterministic mock extraction.',
+    });
+  }
 
+  // 2. Real Advocate
+  if (!isSarvamConfigured()) {
     return NextResponse.json(
-      { error: 'No OCR provider is configured on this server. Add SARVAM_API_KEY in environment variables.' },
+      {
+        error:
+          'SARVAM_API_KEY is not configured on this server. Add SARVAM_API_KEY to server environment variables to enable Document AI extraction.',
+      },
       { status: 503 }
     );
   }
 
   try {
-    const ocrResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a precise legal document transcription assistant. Transcribe the exact text from the provided image verbatim. Do not summarize, alter, or interpret the legal terminology. Return only the raw extracted text.',
-          },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Transcribe this legal document verbatim:' },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageBase64.startsWith('data:')
-                    ? imageBase64
-                    : `data:image/jpeg;base64,${imageBase64}`,
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 2000,
-      }),
-    });
-
-    if (!ocrResponse.ok) {
-      throw new Error(`External OCR provider returned error: ${ocrResponse.statusText}`);
+    // Decode base64 to Blob for Sarvam DocAI
+    let mime = 'image/jpeg';
+    let b64 = imageBase64;
+    if (imageBase64.startsWith('data:')) {
+      const [meta, raw] = imageBase64.split(',');
+      const match = meta.match(/data:([^;]+);/);
+      if (match) mime = match[1];
+      b64 = raw;
     }
 
-    const ocrData = await ocrResponse.json();
-    const extractedText = ocrData.choices?.[0]?.message?.content?.trim() || '';
+    const binaryStr = atob(b64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mime });
 
-    // Audit metadata ONLY — never stores document contents
-    await service.from('external_ocr_audit').insert({
-      owner_id: userId,
-      matter_id: matterId,
-      provider: 'openai_vision',
-      outcome: 'success',
+    const result = await extractDocumentText({
+      fileBlob: blob,
+      outputFormat: 'md',
+      isDemoMode: false,
+      pollTimeoutMs: 60_000,
     });
 
-    return NextResponse.json({
-      text: extractedText,
-      provider: 'openai_vision',
-      warning: 'Enhanced OCR draft generated. Review and edit the text before translating.',
-    });
-  } catch (error) {
-    console.error('[ocr/enhanced] OpenAI Vision error:', error);
+    if (!result.ok) {
+      try {
+        await service.from('external_ocr_audit').insert({
+          owner_id: userId,
+          matter_id: matterId,
+          provider: 'sarvam_docai',
+          outcome: 'failure',
+        });
+      } catch {}
+
+      return NextResponse.json(
+        { error: result.message, code: result.code, retryable: true },
+        { status: 502 }
+      );
+    }
+
     try {
       await service.from('external_ocr_audit').insert({
         owner_id: userId,
         matter_id: matterId,
-        provider: 'openai_vision',
-        outcome: 'failure',
+        provider: 'sarvam_docai',
+        outcome: 'success',
       });
     } catch {}
+
+    return NextResponse.json({
+      text: result.data.text,
+      provider: 'sarvam_docai',
+      jobId: result.data.jobId,
+      warning: '✦ Sarvam Document AI Draft — review against original document before use.',
+    });
+  } catch (error) {
+    console.error('[ocr/enhanced] Sarvam DocAI JSON handler error:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Enhanced OCR processing failed.' },
+      { error: error instanceof Error ? error.message : 'Document AI extraction failed.', retryable: true },
       { status: 500 }
     );
   }

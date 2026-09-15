@@ -41,6 +41,7 @@ import type {
   SarvamOutcome,
   SarvamError,
 } from './types';
+import { extractMarkdownFromZip } from './zip';
 
 // ── Validation limits ─────────────────────────────────────────────────────────
 
@@ -178,7 +179,8 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
   const resolvedFileName =
     fileName ?? MIME_TO_EXT[fileBlob.type] ?? 'document.pdf';
   form.append('file', fileBlob, resolvedFileName);
-  form.append('output_format', outputFormat);
+  // Sarvam official doc-ai/v1 API requires 'md', 'html', or 'json'
+  form.append('output_format', outputFormat === 'json' ? 'json' : outputFormat === 'html' ? 'html' : 'md');
 
   // Only include model field if explicitly configured — most Doc AI endpoints
   // default to Sarvam Vision 1.5 without needing an explicit model parameter.
@@ -219,25 +221,50 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
     await new Promise((r) => setTimeout(r, DOC_AI_POLL_INTERVAL_MS));
 
     const pollResult = await sarvamGet<SarvamDocAIJobResponse>(
-      `/doc-ai/v1/job/${job_id}`,
+      `/doc-ai/v1/job/${job_id}/status`,
       { timeoutMs: 10_000 }
     );
 
     if (!pollResult.ok) {
-      // Surface polling errors but include the job_id for debugging
       console.error(`[sarvam/docai] Polling error for job_id=${job_id}:`, pollResult.code);
       return pollResult;
     }
 
     const { status, output, error } = pollResult.data;
     lastStatus = status;
+    const normStatus = (status || '').toLowerCase();
 
-    if (status === 'COMPLETED') {
-      console.log(`[sarvam/docai] Job completed: job_id=${job_id}`);
+    // Terminal success states: completed or partially_completed
+    if (normStatus === 'completed' || normStatus === 'partially_completed') {
+      console.log(`[sarvam/docai] Job finished with status=${status}: job_id=${job_id}`);
+
+      let extractedText = output ?? '';
+
+      // Fetch the output package via /download-url (returns presigned ZIP link)
+      try {
+        const dlResult = await sarvamGet<{ download_url?: string }>(
+          `/doc-ai/v1/job/${job_id}/download-url`,
+          { timeoutMs: 15_000 }
+        );
+
+        if (dlResult.ok && dlResult.data.download_url) {
+          const zipRes = await fetch(dlResult.data.download_url);
+          if (zipRes.ok) {
+            const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
+            const parsedMd = extractMarkdownFromZip(zipBuffer);
+            if (parsedMd) {
+              extractedText = parsedMd;
+            }
+          }
+        }
+      } catch (dlErr) {
+        console.warn(`[sarvam/docai] download-url fetch warning for job_id=${job_id}:`, dlErr);
+      }
+
       return {
         ok: true,
         data: {
-          text: output ?? '',
+          text: extractedText,
           format: outputFormat,
           jobId: job_id,
         },
@@ -245,13 +272,14 @@ export async function extractDocumentText(options: DocAIOptions): Promise<DocAIR
       };
     }
 
-    if (status === 'FAILED' || status === 'CANCELLED') {
+    // Terminal failure states
+    if (normStatus === 'failed' || normStatus === 'rejected' || normStatus === 'cancelled') {
       console.error(`[sarvam/docai] Job ${status}: job_id=${job_id}`);
       return {
         ok: false,
         message:
           error ??
-          `Document AI job ${status.toLowerCase()}. Please try again with a cleaner scan.`,
+          `Document AI job ${normStatus}. Please try again with a clearer scan.`,
         code: 'service_error',
         httpStatus: undefined,
       };

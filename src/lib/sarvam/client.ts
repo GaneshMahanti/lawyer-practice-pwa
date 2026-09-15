@@ -30,25 +30,20 @@ export const SARVAM_BASE_URL =
 
 /**
  * Default Speech-to-Text model.
- * Per official docs (verified 2026-09-15): saaras:v2 is the current stable model.
- * Override via SARVAM_STT_MODEL env var to switch to a newer version without code changes.
- *
- * ⚠️  Verify at implementation time: https://docs.sarvam.ai/api-reference-docs/speech-to-text
+ * Per official docs (verified 2026-09-15): saaras:v3 is the current stable production model.
+ * Override via SARVAM_STT_MODEL env var to switch versions without code changes.
  */
 export const SARVAM_STT_MODEL =
-  process.env.SARVAM_STT_MODEL ?? 'saaras:v2';
+  process.env.SARVAM_STT_MODEL ?? 'saaras:v3';
 
 /**
  * Default Translation model.
- * Per official docs (verified 2026-09-15): mayura:v1 is the recommended production model
- * for formal legal text. sarvam-translate:v1 supports more languages but is less
- * suited for formal legal register.
+ * Primary model: sarvam-translate:v1 with formal mode (supports up to 2,000 characters).
+ * mayura:v1 is available as an optional configurable model (limit 1,000 characters).
  * Override via SARVAM_TRANSLATE_MODEL env var.
- *
- * ⚠️  Verify at implementation time: https://docs.sarvam.ai/api-reference-docs/translate
  */
 export const SARVAM_TRANSLATE_MODEL =
-  process.env.SARVAM_TRANSLATE_MODEL ?? 'mayura:v1';
+  process.env.SARVAM_TRANSLATE_MODEL ?? 'sarvam-translate:v1';
 
 /**
  * Document AI model selector. Most Sarvam Doc AI endpoints do not require an
