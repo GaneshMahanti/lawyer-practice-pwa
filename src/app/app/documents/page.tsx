@@ -43,6 +43,7 @@ function DocumentTranslationContent() {
   const [ocrMethod, setOcrMethod] = useState<string | null>(null);
   const [ocrNotice, setOcrNotice] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [enhancedError, setEnhancedError] = useState<string | null>(null);
 
@@ -74,6 +75,7 @@ function DocumentTranslationContent() {
     if (!file) return;
 
     setFileName(file.name);
+    setUploadedFile(file);
     setOcrLoading(true);
     setOcrNotice(null);
     setEnhancedError(null);
@@ -93,23 +95,25 @@ function DocumentTranslationContent() {
       const res = await extractDocumentText(file);
       if (res.text) {
         setTeluguText(res.text);
-      }
-      setOcrMethod(res.method);
-      if (res.warning) {
-        setOcrNotice(res.warning);
+        setOcrMethod(res.method);
+        if (res.warning) setOcrNotice(res.warning);
+      } else {
+        // No selectable text found — show the AI extraction option
+        setOcrMethod(res.method);
+        if (res.warning) setOcrNotice(res.warning);
       }
     } catch (err) {
       console.error('Local text extraction failed:', err);
-      setOcrNotice('Notice: Local document reading could not complete. You can type or paste the text directly.');
+      setOcrNotice('Notice: Local document reading could not complete. You can type or paste the text directly, or use AI Extract.');
     } finally {
       setOcrLoading(false);
     }
   };
 
-  // Trigger Enhanced Server OCR with consent
+  // Trigger Sarvam Document AI (primary) or OpenAI Vision (fallback) with consent
   const handleConfirmEnhancedOcr = async () => {
-    if (!uploadedImagePreview) {
-      setEnhancedError('Please upload an image or scan of the document before requesting enhanced OCR.');
+    if (!uploadedFile && !uploadedImagePreview) {
+      setEnhancedError('Please upload a document or image before requesting AI extraction.');
       setShowConsentModal(false);
       return;
     }
@@ -119,29 +123,40 @@ function DocumentTranslationContent() {
     setEnhancedError(null);
 
     try {
-      const res = await fetch('/api/ocr/enhanced', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          consent: true,
-          matterId: selectedMatterId || null,
-          imageBase64: uploadedImagePreview,
-        }),
-      });
+      let res: Response;
+
+      if (uploadedFile) {
+        // Primary path: send file directly as multipart — Sarvam DocAI handles PDF + images
+        const form = new FormData();
+        form.append('consent', 'true');
+        form.append('file', uploadedFile, uploadedFile.name);
+        if (selectedMatterId) form.append('matterId', selectedMatterId);
+
+        res = await fetch('/api/ocr/enhanced', { method: 'POST', body: form });
+      } else {
+        // Fallback: JSON + base64 (images only, for backward compat)
+        res = await fetch('/api/ocr/enhanced', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            consent: true,
+            matterId: selectedMatterId || null,
+            imageBase64: uploadedImagePreview,
+          }),
+        });
+      }
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Enhanced OCR request failed');
-      }
+      if (!res.ok) throw new Error(data.error || 'AI document extraction failed.');
 
       if (data.text) {
         setTeluguText(data.text);
-        setOcrMethod('enhanced_external');
-        setOcrNotice(data.warning || 'Enhanced OCR draft generated. Always review and verify before translating.');
+        setOcrMethod(data.provider === 'sarvam_docai' ? 'sarvam_docai' : 'enhanced_external');
+        setOcrNotice(data.warning || 'AI-Extracted Text Draft generated. Review against the original document before use.');
       }
     } catch (err) {
-      console.error('Enhanced OCR error:', err);
-      setEnhancedError(err instanceof Error ? err.message : 'Enhanced OCR failed.');
+      console.error('[documents] Enhanced OCR error:', err);
+      setEnhancedError(err instanceof Error ? err.message : 'AI document extraction failed.');
     } finally {
       setEnhancedLoading(false);
     }
@@ -392,14 +407,21 @@ function DocumentTranslationContent() {
                       fontSize: '0.72rem',
                       padding: '2px 8px',
                       borderRadius: 4,
-                      backgroundColor: ocrMethod === 'enhanced_external' ? 'var(--accent-gold-soft, #fef3c7)' : 'var(--bg-surface-elevated)',
-                      color: ocrMethod === 'enhanced_external' ? '#92400e' : 'var(--text-secondary)',
+                      backgroundColor:
+                        ocrMethod === 'sarvam_docai' ? 'rgba(99,102,241,0.12)'
+                        : ocrMethod === 'enhanced_external' ? 'var(--accent-gold-soft, #fef3c7)'
+                        : 'var(--bg-surface-elevated)',
+                      color:
+                        ocrMethod === 'sarvam_docai' ? '#6366f1'
+                        : ocrMethod === 'enhanced_external' ? '#92400e'
+                        : 'var(--text-secondary)',
                       fontWeight: 600,
                     }}
                   >
                     {ocrMethod === 'pdf_text' && 'Selectable PDF Text'}
                     {ocrMethod === 'image_ocr' && 'On-Device OCR'}
-                    {ocrMethod === 'enhanced_external' && 'Enhanced OCR'}
+                    {ocrMethod === 'sarvam_docai' && '✦ Sarvam Doc AI (Draft)'}
+                    {ocrMethod === 'enhanced_external' && 'Enhanced OCR (Draft)'}
                     {ocrMethod === 'empty' && 'Text Entry Needed'}
                   </span>
                 )}
@@ -419,13 +441,13 @@ function DocumentTranslationContent() {
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button
                     type="button"
-                    className="action-btn"
+                    className="action-btn action-btn-primary"
                     style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     disabled={enhancedLoading || ocrLoading}
                     onClick={() => setShowConsentModal(true)}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-                    {enhancedLoading ? 'Transcribing via Server…' : 'Server Enhanced OCR (Optional)'}
+                    {enhancedLoading ? 'Extracting with AI…' : '✦ AI Extract (Sarvam DocAI)'}
                   </button>
                 </div>
               </div>
@@ -473,12 +495,13 @@ function DocumentTranslationContent() {
                   Advocate Consent Required
                 </div>
                 <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 14 }}>
-                  You are about to transmit this document scan to the server-side enhanced OCR provider.
+                  You are about to send this document to an AI extraction service. The extracted text is a draft — always review it against the original.
                 </p>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', backgroundColor: 'var(--bg-app)', padding: 10, borderRadius: 6, marginBottom: 14 }}>
-                  <p style={{ margin: '0 0 6px 0' }}>• Provider: Secure legal transcription provider (OpenAI Vision API)</p>
-                  <p style={{ margin: '0 0 6px 0' }}>• Audit Logging: Metadata only (Advocate ID, Matter ID, Timestamp, Outcome) will be written to <code>external_ocr_audit</code>.</p>
-                  <p style={{ margin: 0 }}>• Privacy: Document contents and client text are never stored in audit tables.</p>
+                  <p style={{ margin: '0 0 6px 0' }}>• Primary provider: <strong>Sarvam Document AI</strong> (Indian languages: Telugu, Hindi, English)</p>
+                  <p style={{ margin: '0 0 6px 0' }}>• Fallback provider: OpenAI Vision (when Sarvam is unavailable)</p>
+                  <p style={{ margin: '0 0 6px 0' }}>• Audit Logging: Metadata only (Advocate ID, Matter ID, Timestamp, Outcome) — written to <code>external_ocr_audit</code>.</p>
+                  <p style={{ margin: 0 }}>• Privacy: Document text and client data are <strong>never</strong> stored in audit tables.</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                   <button
@@ -518,11 +541,11 @@ function DocumentTranslationContent() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{display:'inline',verticalAlign:'middle',marginRight:5}} aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><strong>Mandatory Review Notice:</strong> Handwritten Telugu OCR accuracy is significantly lower than printed text. Please carefully review and correct the extracted Telugu text in the field below before finalizing or relying on the translation.
           </div>
 
-          {/* ── Step 1: Telugu Text Review Area ── */}
+          {/* ── Step 1: Text Review Area ── */}
           <div className="card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div className="card-title" style={{ margin: 0 }}>
-                1. Telugu Original Text (తెలుగు అసలు పాఠం)
+                1. Source Text {ocrMethod === 'sarvam_docai' ? '— AI-Extracted Draft ✦' : '(తెలుగు అసలు పాఠం)'}
               </div>
               {teluguText && (
                 <button
