@@ -43,6 +43,7 @@ export default function ClientsPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
+  const [feeError, setFeeError] = useState<string | null>(null);
 
   // Invite form fields
   const [inviteName, setInviteName] = useState('');
@@ -113,10 +114,16 @@ export default function ClientsPage() {
   const handleGenerateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError(null);
+    setFeeError(null);
 
-    const cFee = parseFloat(consultationFee) || 0;
-    const lFee = parseFloat(legalNoticeFee) || 0;
-    const csFee = parseFloat(caseFee) || 0;
+    const feeValues = [consultationFee, legalNoticeFee, caseFee];
+    if (feeValues.some((value) => value.trim() !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0))) {
+      setFeeError('Fees must be zero or any non-negative amount.');
+      return;
+    }
+    const cFee = Number(consultationFee) || 0;
+    const lFee = Number(legalNoticeFee) || 0;
+    const csFee = Number(caseFee) || 0;
 
     const provisionalClientId = crypto.randomUUID();
 
@@ -295,6 +302,14 @@ export default function ClientsPage() {
 
   return (
     <div>
+      {deletingInviteId && (
+        <div className="modal-overlay" role="status" aria-live="polite" aria-label="Deleting pending invite">
+          <div className="card" style={{ minWidth: 220, textAlign: 'center', padding: 24 }}>
+            <div className="loading-spinner" aria-hidden="true" />
+            <div style={{ marginTop: 12, color: 'var(--text-primary)', fontWeight: 600 }}>Deleting pending invite…</div>
+          </div>
+        </div>
+      )}
       <div className="section-label">{t('clients')}</div>
 
       {/* Action Bar */}
@@ -321,7 +336,7 @@ export default function ClientsPage() {
             <line x1="19" x2="19" y1="8" y2="14" />
             <line x1="22" x2="16" y1="11" y2="11" />
           </svg>
-          <span>Invite Client (WhatsApp)</span>
+          <span>{t('inviteClient')}</span>
         </button>
 
         <button
@@ -330,7 +345,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center' }}
           onClick={() => setShowDirectAddModal(true)}
         >
-          <span>+ Add Directly</span>
+          <span>+ {t('addDirectly')}</span>
         </button>
       </div>
 
@@ -342,7 +357,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.88rem' }}
           onClick={() => setActiveTab('active')}
         >
-          Active Clients ({activeClients.length})
+          {t('activeClients')} ({activeClients.length})
         </button>
         <button
           type="button"
@@ -350,7 +365,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.88rem' }}
           onClick={() => setActiveTab('pending')}
         >
-          Pending Invites ({pendingClients.length})
+          {t('pendingInvites')} ({pendingClients.length})
         </button>
       </div>
 
@@ -360,7 +375,7 @@ export default function ClientsPage() {
           <input
             type="text"
             className="input-field"
-            placeholder="Search by name, phone, or case ref…"
+            placeholder={t('searchClients')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ margin: '0 0 10px 0' }}
@@ -646,7 +661,8 @@ export default function ClientsPage() {
                       <button
                         type="button"
                         className="action-btn"
-                        aria-label={`Delete invite for ${c.name}`}
+                        disabled={deletingInviteId === c.id}
+                        aria-label={`${t('deleteInvite')} for ${c.name}`}
                         onClick={() => handleDeletePendingInvite(c)}
                         style={{ justifyContent: 'center', flex: '0 0 44px', padding: 0, color: 'var(--status-danger)' }}
                       >
@@ -718,34 +734,35 @@ export default function ClientsPage() {
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 12 }}>
                     Any fee left at ₹0 or blank will NOT appear on the client-facing page at all.
                   </div>
+                  {feeError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: '0.8rem', marginBottom: 8 }}>{feeError}</div>}
 
-                  <label className="input-label">Consultation Fee (₹)</label>
+                  <label className="input-label">{t('consultationFee')}</label>
                   <input
                     type="number"
                     min="0"
-                    step="100"
+                    step="any"
                     className="input-field"
                     placeholder="0"
                     value={consultationFee}
                     onChange={(e) => setConsultationFee(e.target.value)}
                   />
 
-                  <label className="input-label">Legal Notice Fee (₹)</label>
+                  <label className="input-label">{t('legalNoticeFee')}</label>
                   <input
                     type="number"
                     min="0"
-                    step="100"
+                    step="any"
                     className="input-field"
                     placeholder="0"
                     value={legalNoticeFee}
                     onChange={(e) => setLegalNoticeFee(e.target.value)}
                   />
 
-                  <label className="input-label">Case / Retainer Fee (₹)</label>
+                  <label className="input-label">{t('caseRetainerFee')}</label>
                   <input
                     type="number"
                     min="0"
-                    step="500"
+                    step="any"
                     className="input-field"
                     placeholder="0"
                     value={caseFee}
@@ -756,15 +773,15 @@ export default function ClientsPage() {
                 {/* Payment Collection Mode */}
                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginTop: 12 }}>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: 4 }}>
-                    How will you collect the fee?
+                    {t('collectFee')}
                   </div>
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>
                     This determines how the client is instructed to pay after KYC.
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {([
-                      { value: 'cash' as const, label: 'Collect Cash in Person', desc: 'Client pays cash to advocate. You approve manually from Pending Invites.', color: '#c8a03c', disabled: false },
-                      { value: 'upi' as const, label: 'Collect UPI (Manual)', desc: 'Client pays via UPI. You verify and mark received. Activation is instant.', color: '#3b82f6', disabled: false },
+                      { value: 'cash' as const, label: t('collectCash'), desc: 'Client pays cash to advocate. You approve manually from Pending Invites.', color: '#c8a03c', disabled: false },
+                      { value: 'upi' as const, label: t('collectUpi'), desc: 'Client pays via UPI. You verify and mark received. Activation is instant.', color: '#3b82f6', disabled: false },
                       { value: 'razorpay' as const, label: 'Razorpay Gateway (Coming Soon)', desc: 'Online payment link sent to client. Auto-activates on payment.', color: '#6b7280', disabled: true },
                     ]).map((opt) => (
                       <label

@@ -42,6 +42,21 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     disclaimerTitle: 'Practice Management & Assistance Tool',
     disclaimerText:
       'Calculations, generated forms, and case summaries are technical assistance tools and require advocate review and verification.',
+    inviteClient: 'Invite Client (WhatsApp)',
+    addDirectly: 'Add Directly',
+    activeClients: 'Active Clients',
+    pendingInvites: 'Pending Invites',
+    searchClients: 'Search by name, phone, or case ref…',
+    consultationFee: 'Consultation Fee (₹)',
+    legalNoticeFee: 'Legal Notice Fee (₹)',
+    caseRetainerFee: 'Case / Retainer Fee (₹)',
+    collectFee: 'How will you collect the fee?',
+    collectCash: 'Collect Cash in Person',
+    collectUpi: 'Collect UPI (Manual)',
+    deleteInvite: 'Delete pending invite',
+    duplicateClient: 'Client already exists',
+    addAnotherCase: 'Add for another case',
+    cancel: 'Cancel',
   },
   hi: {
     appName: 'वकीलडेस्क',
@@ -84,6 +99,7 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     disclaimerTitle: 'अभ्यास प्रबंधन एवं सहायता प्रणाली',
     disclaimerText:
       'गणनाएं, उत्पन्न प्रपत्र और वाद विवरण तकनीकी सहायता उपकरण हैं और अधिवक्ता द्वारा समीक्षा आवश्यक है।',
+    inviteClient: 'मुवक्किल को आमंत्रित करें (WhatsApp)', addDirectly: 'सीधे जोड़ें', activeClients: 'सक्रिय मुवक्किल', pendingInvites: 'लंबित आमंत्रण', searchClients: 'नाम, फोन या केस संदर्भ से खोजें…', consultationFee: 'परामर्श शुल्क (₹)', legalNoticeFee: 'कानूनी नोटिस शुल्क (₹)', caseRetainerFee: 'केस / रिटेनर शुल्क (₹)', collectFee: 'शुल्क कैसे लेंगे?', collectCash: 'व्यक्तिगत रूप से नकद लें', collectUpi: 'UPI लें (मैनुअल)', deleteInvite: 'लंबित आमंत्रण हटाएं', duplicateClient: 'मुवक्किल पहले से मौजूद है', addAnotherCase: 'दूसरे केस के लिए जोड़ें', cancel: 'रद्द करें',
   },
   te: {
     appName: 'వకీల్‌డెస్క్',
@@ -126,5 +142,6 @@ export const translations: Record<SupportedLanguage, Record<string, string>> = {
     disclaimerTitle: 'ప్రాక్టీస్ నిర్వహణ సహాయ సాధనం',
     disclaimerText:
       'లెక్కింపులు, రూపొందించిన పత్రాలు మరియు కేసు సారాంశాలు సాంకేతిక సహాయ సాధనాలు మాత్రమే, న్యాయవాది సమీక్ష తప్పనిసరి.',
+    inviteClient: 'క్లయింట్‌ను ఆహ్వానించండి (WhatsApp)', addDirectly: 'నేరుగా జోడించండి', activeClients: 'యాక్టివ్ క్లయింట్లు', pendingInvites: 'పెండింగ్ ఆహ్వానాలు', searchClients: 'పేరు, ఫోన్ లేదా కేసు సూచనతో శోధించండి…', consultationFee: 'కన్సల్టేషన్ ఫీజు (₹)', legalNoticeFee: 'లీగల్ నోటీస్ ఫీజు (₹)', caseRetainerFee: 'కేసు / రిటైనర్ ఫీజు (₹)', collectFee: 'ఫీజును ఎలా వసూలు చేస్తారు?', collectCash: 'వ్యక్తిగతంగా నగదు తీసుకోండి', collectUpi: 'UPI తీసుకోండి (మాన్యువల్)', deleteInvite: 'పెండింగ్ ఆహ్వానాన్ని తొలగించండి', duplicateClient: 'క్లయింట్ ఇప్పటికే ఉన్నారు', addAnotherCase: 'మరొక కేసు కోసం జోడించండి', cancel: 'రద్దు',
   },
 };
