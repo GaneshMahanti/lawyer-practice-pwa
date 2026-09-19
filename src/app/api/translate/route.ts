@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
   // ── Approved advocates: Sarvam ────────────────────────────────────────────
   if (!isSarvamConfigured()) {
-    logServerError('api/translate', new Error('SARVAM_API_KEY is not configured on this server'), {
+    await logServerError('api/translate', new Error('SARVAM_API_KEY is not configured on this server'), {
       userId: user.id,
     });
     return NextResponse.json({ error: MSG_UNAVAILABLE, provider: 'none' }, { status: 503 });
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Failure: full detail to the server log, one simple message to the user.
-  logServerError('api/translate', new Error(result.message), {
+  await logServerError('api/translate', new Error(result.message), {
     code: result.code,
     httpStatus: result.httpStatus,
     userId: user.id,

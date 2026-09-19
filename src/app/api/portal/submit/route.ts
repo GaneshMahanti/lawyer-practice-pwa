@@ -15,7 +15,6 @@ export async function POST(request: NextRequest) {
       aadhaar_last4,
       current_address,
       permanent_address,
-      allowDuplicate,
     } = body;
 
     // 1. Basic field validations
@@ -80,27 +79,6 @@ export async function POST(request: NextRequest) {
     const cleanPhone2 = phone_2 ? phone_2.replace(/\s|-/g, '') : null;
     const nowIso = new Date().toISOString();
 
-    // A client may have several matters, but never merge a new onboarding
-    // submission into an existing record without explicit advocate consent.
-    if (!allowDuplicate) {
-      const { data: phoneMatches } = await db
-        .from('clients')
-        .select('id, name, phone')
-        .eq('owner_id', invite.owner_id)
-        .eq('phone', cleanPhone1);
-      const normalizedName = name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-      const duplicate = (phoneMatches || []).find((client: { id: string; name: string; phone: string }) =>
-        client.name.trim().replace(/\s+/g, ' ').toLocaleLowerCase() === normalizedName &&
-        client.id !== invite.client_id
-      );
-      if (duplicate) {
-        return NextResponse.json(
-          { error: 'A client with the same name and phone number already exists.', code: 'duplicate_client', duplicateClient: { name: duplicate.name } },
-          { status: 409 }
-        );
-      }
-    }
-
     const { data: existingSub } = await db
       .from('portal_submissions')
       .select('id')
@@ -148,7 +126,7 @@ export async function POST(request: NextRequest) {
     const nextStatus = !hasFeesToPay || isPayingNow ? 'completed' : 'payment_pending';
 
     // 5. Create or link exactly ONE Client record idempotently
-    let targetClientId: string | null = allowDuplicate ? null : (invite.client_id || null);
+    let targetClientId: string | null = invite.client_id || null;
 
     if (targetClientId) {
       const { data: existingClient } = await db
@@ -161,7 +139,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!targetClientId && !allowDuplicate) {
+    if (!targetClientId) {
       // Try to find provisional client created by registration_token
       const { data: clientByToken } = await db
         .from('clients')

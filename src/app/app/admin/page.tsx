@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { NotificationHealthCard } from '@/components/NotificationHealthCard';
 
 interface ApprovedUser {
   id: string;
@@ -508,6 +509,8 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      <NotificationHealthCard />
     </div>
   );
 }

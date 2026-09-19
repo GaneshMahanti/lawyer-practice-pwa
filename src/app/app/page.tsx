@@ -6,6 +6,12 @@ import { useLanguage } from '@/lib/i18n/context';
 import { CalendarView } from '@/components/CalendarView';
 import { PWAInstaller } from '@/components/PWAInstaller';
 import {
+  getDueInAppReminders,
+  effectiveHearingStartMs,
+  loadDismissedReminderIds,
+  saveDismissedReminderIds,
+} from '@/lib/reminders/engine';
+import {
   loadClientFees,
   loadBookings,
   loadMatters,
@@ -55,7 +61,19 @@ function RemindersBanner() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [matters, setMatters] = useState<Matter[]>([]);
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => loadDismissedReminderIds());
+  // Re-check the clock so a reminder appears the moment its time arrives, even if the app stays open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const timer = window.setInterval(tick, 30_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
 
   const refresh = () => {
     try {
@@ -81,16 +99,16 @@ function RemindersBanner() {
     };
   }, []);
 
-  const now = new Date();
-  const triggered = reminders.filter(
-    (r) => r.status === 'pending' && new Date(r.scheduled_for) <= now && !dismissedIds.has(r.id),
-  );
+  const triggered = getDueInAppReminders(reminders, bookings, nowMs, dismissedIds);
 
   if (triggered.length === 0) return null;
 
-  const dismissAll = () => {
-    setDismissedIds(new Set([...dismissedIds, ...triggered.map((r) => r.id)]));
+  const dismiss = (ids: string[]) => {
+    const next = new Set([...dismissedIds, ...ids]);
+    setDismissedIds(next);
+    saveDismissedReminderIds(next);
   };
+  const dismissAll = () => dismiss(triggered.map((r) => r.id));
 
   return (
     <div
@@ -146,7 +164,7 @@ function RemindersBanner() {
         {triggered.map((r) => {
           const booking = bookings.find((b) => b.id === r.booking_id);
           const matter = matters.find((m) => m.id === (r.matter_id || booking?.matter_id));
-          const hearingDate = booking ? new Date(booking.start_at) : null;
+          const hearingDate = booking ? new Date(effectiveHearingStartMs(booking.start_at)) : null;
           const formattedHearing = hearingDate
             ? `${hearingDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} at ${hearingDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}`
             : null;
@@ -177,7 +195,7 @@ function RemindersBanner() {
               </div>
               <button
                 type="button"
-                onClick={() => setDismissedIds((prev) => new Set(prev).add(r.id))}
+                onClick={() => dismiss([r.id])}
                 style={{
                   background: 'none',
                   border: 'none',

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useLanguage } from '@/lib/i18n/context';
 import {
@@ -19,6 +19,27 @@ import {
   hydrateWorkspace,
 } from '@/lib/data/repository';
 import type { Client, ClientFee, PortalInvite } from '@/lib/types/database';
+
+/**
+ * Asks the server for a short link (https://<domain>/p/xxxxxxxx) for a client-onboarding token.
+ * Returns null on any failure so callers fall back to the full link and nothing breaks.
+ */
+async function requestShortUrl(token: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/shortlinks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data.code === 'string' && /^[0-9A-Za-z]{8}$/.test(data.code)
+      ? `${window.location.origin}/p/${data.code}`
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function ClientsPage() {
   const { t } = useLanguage();
@@ -43,7 +64,24 @@ export default function ClientsPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
-  const [feeError, setFeeError] = useState<string | null>(null);
+
+  // Short onboarding links, keyed by the long token. Falls back to the long link until ready.
+  const [shortUrls, setShortUrls] = useState<Record<string, string>>({});
+  const shortLinkAttempted = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const tokens = clients
+      .filter((c) => c.status === 'pending' && c.registration_token)
+      .map((c) => c.registration_token as string)
+      .filter((tok) => !shortLinkAttempted.current.has(tok));
+    if (tokens.length === 0) return;
+    tokens.forEach((tok) => shortLinkAttempted.current.add(tok));
+    void (async () => {
+      for (const tok of tokens) {
+        const short = await requestShortUrl(tok);
+        if (short) setShortUrls((prev) => ({ ...prev, [tok]: short }));
+      }
+    })();
+  }, [clients]);
 
   // Invite form fields
   const [inviteName, setInviteName] = useState('');
@@ -114,16 +152,10 @@ export default function ClientsPage() {
   const handleGenerateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError(null);
-    setFeeError(null);
 
-    const feeValues = [consultationFee, legalNoticeFee, caseFee];
-    if (feeValues.some((value) => value.trim() !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0))) {
-      setFeeError('Fees must be zero or any non-negative amount.');
-      return;
-    }
-    const cFee = Number(consultationFee) || 0;
-    const lFee = Number(legalNoticeFee) || 0;
-    const csFee = Number(caseFee) || 0;
+    const cFee = parseFloat(consultationFee) || 0;
+    const lFee = parseFloat(legalNoticeFee) || 0;
+    const csFee = parseFloat(caseFee) || 0;
 
     const provisionalClientId = crypto.randomUUID();
 
@@ -155,7 +187,10 @@ export default function ClientsPage() {
         expiresAt: payload.expiresAt,
       });
 
-      setInviteResult(result);
+      // WhatsApp gets the short link; if shortening fails the full link is used instead.
+      const shortUrl = await requestShortUrl(payload.token);
+      setInviteResult(shortUrl ? { ...result, registrationUrl: shortUrl } : result);
+      if (shortUrl) setShortUrls((prev) => ({ ...prev, [payload.token]: shortUrl }));
       refreshData();
     } catch (error) {
       setInviteError(error instanceof Error ? error.message : 'Unable to create the secure invite.');
@@ -302,14 +337,6 @@ export default function ClientsPage() {
 
   return (
     <div>
-      {deletingInviteId && (
-        <div className="modal-overlay" role="status" aria-live="polite" aria-label="Deleting pending invite">
-          <div className="card" style={{ minWidth: 220, textAlign: 'center', padding: 24 }}>
-            <div className="loading-spinner" aria-hidden="true" />
-            <div style={{ marginTop: 12, color: 'var(--text-primary)', fontWeight: 600 }}>Deleting pending invite…</div>
-          </div>
-        </div>
-      )}
       <div className="section-label">{t('clients')}</div>
 
       {/* Action Bar */}
@@ -336,7 +363,7 @@ export default function ClientsPage() {
             <line x1="19" x2="19" y1="8" y2="14" />
             <line x1="22" x2="16" y1="11" y2="11" />
           </svg>
-          <span>{t('inviteClient')}</span>
+          <span>Invite Client (WhatsApp)</span>
         </button>
 
         <button
@@ -345,7 +372,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center' }}
           onClick={() => setShowDirectAddModal(true)}
         >
-          <span>+ {t('addDirectly')}</span>
+          <span>+ Add Directly</span>
         </button>
       </div>
 
@@ -357,7 +384,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.88rem' }}
           onClick={() => setActiveTab('active')}
         >
-          {t('activeClients')} ({activeClients.length})
+          Active Clients ({activeClients.length})
         </button>
         <button
           type="button"
@@ -365,7 +392,7 @@ export default function ClientsPage() {
           style={{ flex: 1, justifyContent: 'center', fontSize: '0.88rem' }}
           onClick={() => setActiveTab('pending')}
         >
-          {t('pendingInvites')} ({pendingClients.length})
+          Pending Invites ({pendingClients.length})
         </button>
       </div>
 
@@ -375,7 +402,7 @@ export default function ClientsPage() {
           <input
             type="text"
             className="input-field"
-            placeholder={t('searchClients')}
+            placeholder="Search by name, phone, or case ref…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ margin: '0 0 10px 0' }}
@@ -542,7 +569,7 @@ export default function ClientsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {pendingClients.map((c) => {
                 const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                const regUrl = `${origin}/portal/${c.registration_token}`;
+                const regUrl = shortUrls[c.registration_token as string] || `${origin}/portal/${c.registration_token}`;
                 const clientFees = fees.filter((f) => f.client_id === c.id);
                 const totalFees = clientFees.reduce((acc, f) => acc + f.amount, 0);
                 const invite = invites.find((inv) => inv.client_id === c.id);
@@ -661,8 +688,7 @@ export default function ClientsPage() {
                       <button
                         type="button"
                         className="action-btn"
-                        disabled={deletingInviteId === c.id}
-                        aria-label={`${t('deleteInvite')} for ${c.name}`}
+                        aria-label={`Delete invite for ${c.name}`}
                         onClick={() => handleDeletePendingInvite(c)}
                         style={{ justifyContent: 'center', flex: '0 0 44px', padding: 0, color: 'var(--status-danger)' }}
                       >
@@ -734,35 +760,34 @@ export default function ClientsPage() {
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 12 }}>
                     Any fee left at ₹0 or blank will NOT appear on the client-facing page at all.
                   </div>
-                  {feeError && <div role="alert" style={{ color: 'var(--status-danger)', fontSize: '0.8rem', marginBottom: 8 }}>{feeError}</div>}
 
-                  <label className="input-label">{t('consultationFee')}</label>
+                  <label className="input-label">Consultation Fee (₹)</label>
                   <input
                     type="number"
                     min="0"
-                    step="any"
+                    step="100"
                     className="input-field"
                     placeholder="0"
                     value={consultationFee}
                     onChange={(e) => setConsultationFee(e.target.value)}
                   />
 
-                  <label className="input-label">{t('legalNoticeFee')}</label>
+                  <label className="input-label">Legal Notice Fee (₹)</label>
                   <input
                     type="number"
                     min="0"
-                    step="any"
+                    step="100"
                     className="input-field"
                     placeholder="0"
                     value={legalNoticeFee}
                     onChange={(e) => setLegalNoticeFee(e.target.value)}
                   />
 
-                  <label className="input-label">{t('caseRetainerFee')}</label>
+                  <label className="input-label">Case / Retainer Fee (₹)</label>
                   <input
                     type="number"
                     min="0"
-                    step="any"
+                    step="500"
                     className="input-field"
                     placeholder="0"
                     value={caseFee}
@@ -773,15 +798,15 @@ export default function ClientsPage() {
                 {/* Payment Collection Mode */}
                 <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12, marginTop: 12 }}>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: 4 }}>
-                    {t('collectFee')}
+                    How will you collect the fee?
                   </div>
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: 10 }}>
                     This determines how the client is instructed to pay after KYC.
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {([
-                      { value: 'cash' as const, label: t('collectCash'), desc: 'Client pays cash to advocate. You approve manually from Pending Invites.', color: '#c8a03c', disabled: false },
-                      { value: 'upi' as const, label: t('collectUpi'), desc: 'Client pays via UPI. You verify and mark received. Activation is instant.', color: '#3b82f6', disabled: false },
+                      { value: 'cash' as const, label: 'Collect Cash in Person', desc: 'Client pays cash to advocate. You approve manually from Pending Invites.', color: '#c8a03c', disabled: false },
+                      { value: 'upi' as const, label: 'Collect UPI (Manual)', desc: 'Client pays via UPI. You verify and mark received. Activation is instant.', color: '#3b82f6', disabled: false },
                       { value: 'razorpay' as const, label: 'Razorpay Gateway (Coming Soon)', desc: 'Online payment link sent to client. Auto-activates on payment.', color: '#6b7280', disabled: true },
                     ]).map((opt) => (
                       <label

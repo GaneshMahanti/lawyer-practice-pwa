@@ -54,6 +54,7 @@ function MattersContent() {
   const [caseNumber, setCaseNumber] = useState('');
   const [caseYear, setCaseYear] = useState<string>(new Date().getFullYear().toString());
   const [nextHearingDate, setNextHearingDate] = useState('');
+  const [nextHearingTime, setNextHearingTime] = useState('10:00');
   const [hearingPurpose, setHearingPurpose] = useState('');
 
   // Inline "Add New" states
@@ -151,7 +152,10 @@ function MattersContent() {
       court_complex: courtComplex,
       court_name: `${courtComplex}, ${district}`,
       case_year: caseYear,
-      next_hearing_date: nextHearingDate ? new Date(nextHearingDate).toISOString() : null,
+      // Date + time are read as Indian Standard Time so reminders fire at the right hour on any device.
+      next_hearing_date: nextHearingDate
+        ? new Date(`${nextHearingDate}T${nextHearingTime || '10:00'}:00+05:30`).toISOString()
+        : null,
       status: 'Active',
     });
 
@@ -159,6 +163,7 @@ function MattersContent() {
     setTitle('');
     setCaseNumber('');
     setNextHearingDate('');
+    setNextHearingTime('10:00');
     setShowAddModal(false);
     refreshData();
   };
@@ -647,14 +652,28 @@ function MattersContent() {
                 </div>
               </div>
 
-              {/* Next Hearing Date (Optional) */}
-              <label className="input-label">Next Hearing Date</label>
-              <input
-                type="date"
-                className="input-field"
-                value={nextHearingDate}
-                onChange={(e) => setNextHearingDate(e.target.value)}
-              />
+              {/* Next Hearing Date & Time (Optional) - time drives the hearing reminders */}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 2 }}>
+                  <label className="input-label">Next Hearing Date</label>
+                  <input
+                    type="date"
+                    className="input-field"
+                    value={nextHearingDate}
+                    onChange={(e) => setNextHearingDate(e.target.value)}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label className="input-label">Time (IST)</label>
+                  <input
+                    type="time"
+                    className="input-field"
+                    value={nextHearingTime}
+                    onChange={(e) => setNextHearingTime(e.target.value)}
+                    disabled={!nextHearingDate}
+                  />
+                </div>
+              </div>
 
               <button
                 type="submit"

@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { Lock, CheckCircle, ShieldCheck, CreditCard, ArrowRight } from 'lucide-react';
 import type { PortalInviteStatus } from '@/lib/types/database';
-import { useLanguage } from '@/lib/i18n/context';
 
 interface Fee {
   fee_type: string;
@@ -30,7 +29,6 @@ function feeLabel(type: string) {
 }
 
 export default function PortalForm({ inviteId, rawToken, advocateName, fees, initialStatus = 'pending' }: Props) {
-  const { t } = useLanguage();
   const [fullName, setFullName] = useState('');
   const [phone1, setPhone1] = useState('');
   const [phone2, setPhone2] = useState('');
@@ -44,8 +42,6 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
   const [submittedKyc, setSubmittedKyc] = useState(initialStatus === 'payment_pending' || initialStatus === 'submitted');
   const [isCompleted, setIsCompleted] = useState(initialStatus === 'completed');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-  const [duplicateClientName, setDuplicateClientName] = useState<string | null>(null);
-  const [duplicatePaymentMethod, setDuplicatePaymentMethod] = useState<'upi' | 'razorpay' | null>(null);
 
   const totalFee = fees.reduce((s, f) => s + f.amount, 0);
   const paymentMode: 'cash' | 'upi' | 'razorpay' = fees[0]?.payment_mode || 'cash';
@@ -61,7 +57,8 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
     return errs;
   };
 
-  const submitRegistration = async (allowDuplicate = false) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     const errs = validate();
     setValidationErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -82,16 +79,10 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
           current_address: currentAddress.trim(),
           permanent_address: sameAsCurrent ? currentAddress.trim() : permanentAddress.trim(),
           payNow: false,
-          allowDuplicate,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 409 && data.code === 'duplicate_client') {
-          setDuplicatePaymentMethod(null);
-          setDuplicateClientName(data.duplicateClient?.name || fullName.trim());
-          return;
-        }
         setError(data.error || 'Submission failed.');
         return;
       }
@@ -107,12 +98,7 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await submitRegistration();
-  };
-
-  const handleInstantPay = async (method: 'upi' | 'razorpay', allowDuplicate = false) => {
+  const handleInstantPay = async (method: 'upi' | 'razorpay') => {
     setError(null);
     setPayingNow(true);
     try {
@@ -130,16 +116,10 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
           permanent_address: sameAsCurrent ? (currentAddress.trim() || 'Verified Address') : (permanentAddress.trim() || 'Verified Address'),
           payNow: true,
           paymentMethod: method,
-          allowDuplicate,
         }),
       });
       const data = await res.json();
       if (!res.ok) {
-        if (res.status === 409 && data.code === 'duplicate_client') {
-          setDuplicatePaymentMethod(method);
-          setDuplicateClientName(data.duplicateClient?.name || fullName.trim());
-          return;
-        }
         setError(data.error || 'Payment verification failed.');
         return;
       }
@@ -338,26 +318,6 @@ export default function PortalForm({ inviteId, rawToken, advocateName, fees, ini
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-app)', padding: '24px 16px 48px' }}>
-      {duplicateClientName && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="duplicate-client-title">
-          <div className="card modal-card" style={{ maxWidth: 440 }}>
-            <h2 id="duplicate-client-title" style={{ fontSize: '1.08rem', margin: '0 0 10px', color: 'var(--text-primary)' }}>
-              {t('duplicateClient')}
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 16px' }}>
-              {duplicateClientName} already has an onboarding record with this phone number. Do you want to add the same client again for another case?
-            </p>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="action-btn" style={{ flex: 1, justifyContent: 'center' }} onClick={() => { setDuplicateClientName(null); setDuplicatePaymentMethod(null); }}>
-                {t('cancel')}
-              </button>
-              <button type="button" className="action-btn action-btn-primary" style={{ flex: 1, justifyContent: 'center' }} onClick={async () => { const paymentMethod = duplicatePaymentMethod; setDuplicateClientName(null); setDuplicatePaymentMethod(null); if (paymentMethod) await handleInstantPay(paymentMethod, true); else await submitRegistration(true); }}>
-                {t('addAnotherCase')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       <div style={{ maxWidth: 480, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>

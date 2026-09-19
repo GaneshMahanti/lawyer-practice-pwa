@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
   // ── Approved advocates: Sarvam ────────────────────────────────────────────
   if (!isSarvamConfigured()) {
-    logServerError('api/transliterate', new Error('SARVAM_API_KEY is not configured on this server'), {
+    await logServerError('api/transliterate', new Error('SARVAM_API_KEY is not configured on this server'), {
       userId: user.id,
     });
     return NextResponse.json({ error: MSG_UNAVAILABLE, code: 'not_configured' }, { status: 503 });
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  logServerError('api/transliterate', new Error(result.message), {
+  await logServerError('api/transliterate', new Error(result.message), {
     code: result.code,
     httpStatus: result.httpStatus,
     userId: user.id,

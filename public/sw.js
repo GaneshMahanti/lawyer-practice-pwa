@@ -1,6 +1,7 @@
 // ==============================================================================
 // VakilDesk PWA Service Worker
 // Scope: App Shell & Static Asset Caching (Strictly no sensitive legal data cached)
+//        + hearing-reminder push notifications
 // ==============================================================================
 
 const CACHE_NAME = 'vakildesk-shell-v1';
@@ -12,12 +13,14 @@ const PRECACHE_URLS = [
   '/icons/icon-maskable.svg',
 ];
 
-// Install Event — Pre-cache static shell
+// Install Event — Pre-cache static shell.
+// Each URL is cached on its own so one failure can never stop the worker from
+// installing (a worker that fails to install can never receive push notifications).
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_URLS);
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(PRECACHE_URLS.map((url) => cache.add(url)))
+    ).then(() => self.skipWaiting())
   );
 });
 
@@ -87,4 +90,49 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
+});
+
+// ── Push notifications (hearing reminders) ───────────────────────────────────
+// Every push MUST show a notification (iPhone revokes the subscription otherwise),
+// so this always calls showNotification, even if the payload cannot be read.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+
+  const title = data.title || 'VakilDesk';
+  const options = {
+    body: data.body || 'You have an upcoming hearing.',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag: data.tag || undefined,
+    data: { url: data.url || '/app' },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetPath = (event.notification.data && event.notification.data.url) || '/app';
+  const targetUrl = new URL(targetPath, self.location.origin).href;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
+          return client.focus().then((focused) => {
+            if (focused && 'navigate' in focused) {
+              return focused.navigate(targetUrl).catch(() => focused);
+            }
+            return focused;
+          });
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
 });

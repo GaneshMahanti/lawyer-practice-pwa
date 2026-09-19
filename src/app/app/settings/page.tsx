@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
 import { ThemeSwitch } from '@/components/ThemeSwitch';
+import { PushNotificationsCard } from '@/components/PushNotificationsCard';
 import { createClient } from '@/lib/supabase/client';
 import { persistReminderPreferences, loadReminderPreferences } from '@/lib/data/repository';
 import { REMINDER_OFFSET_OPTIONS } from '@/lib/reminders/engine';
@@ -216,6 +217,8 @@ export default function SettingsPage() {
           })}
         </div>
       </div>
+
+      <PushNotificationsCard />
 
       {/* ── Language ── */}
       <div className="card">

@@ -23,6 +23,61 @@ export const DEFAULT_REMINDER_PREFERENCES: ReminderPreferences = {
   in_app_enabled: true,
 };
 
+// ── Hearing time ─────────────────────────────────────────────────────────────
+
+// Older hearings were saved from a date-only field, which produced exactly
+// 00:00 UTC (= 05:30 IST). Reminders for those are scheduled against 10:00 IST
+// (= 04:30 UTC) instead, so "1 hour before" is not 4:30 AM.
+const LEGACY_DATE_ONLY_SHIFT_MS = (4 * 60 + 30) * 60 * 1000;
+
+/** The moment a hearing really starts, for reminder purposes. NaN if the date is invalid. */
+export function effectiveHearingStartMs(startAtIso: string): number {
+  const t = new Date(startAtIso).getTime();
+  if (!Number.isFinite(t)) return NaN;
+  const d = new Date(t);
+  const isLegacyDateOnly =
+    d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0;
+  return isLegacyDateOnly ? t + LEGACY_DATE_ONLY_SHIFT_MS : t;
+}
+
+// ── Due-time rules (used by the server sender) ───────────────────────────────
+
+/** How late a reminder may still be sent (covers a delayed scheduler run). */
+export function reminderGraceMs(offsetMinutes: number): number {
+  return offsetMinutes >= 1440 ? 3 * 60 * 60 * 1000 : 45 * 60 * 1000;
+}
+
+/** True when this reminder should be sent now: its time has come, the grace window is open, and the hearing has not started. */
+export function isReminderDue(startMs: number, offsetMinutes: number, nowMs: number): boolean {
+  if (!Number.isFinite(startMs) || nowMs >= startMs) return false;
+  const scheduledMs = startMs - offsetMinutes * 60 * 1000;
+  return scheduledMs <= nowMs && nowMs - scheduledMs <= reminderGraceMs(offsetMinutes);
+}
+
+// ── Message wording (shared by push and in-app) ──────────────────────────────
+
+export function reminderWhenPhrase(offsetMinutes: number): string {
+  if (offsetMinutes <= 15) return 'in 15 minutes';
+  if (offsetMinutes <= 30) return 'in 30 minutes';
+  if (offsetMinutes <= 60) return 'in 1 hour';
+  if (offsetMinutes <= 120) return 'in 2 hours';
+  if (offsetMinutes <= 1440) return 'tomorrow';
+  if (offsetMinutes <= 2880) return 'in 2 days';
+  if (offsetMinutes <= 7200) return 'in 5 days';
+  return 'in 1 week';
+}
+
+export function formatHearingIST(ms: number): string {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' });
+  const time = d
+    .toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', hour12: true })
+    .toUpperCase();
+  return `${date}, ${time}`;
+}
+
+// ── In-app reminders (banner on the home screen) ─────────────────────────────
+
 export function buildInAppReminders(
   ownerId: string,
   bookings: Booking[],
@@ -34,7 +89,7 @@ export function buildInAppReminders(
 
   for (const booking of bookings) {
     if (booking.status !== 'scheduled') continue;
-    const start = new Date(booking.start_at).getTime();
+    const start = effectiveHearingStartMs(booking.start_at);
     if (!Number.isFinite(start) || start <= now) continue;
 
     for (const offset of preferences.offsets_minutes) {
@@ -47,8 +102,11 @@ export function buildInAppReminders(
         matter_id: booking.matter_id,
         channel: 'in_app',
         scheduled_for: scheduledFor,
-        status: new Date(scheduledFor).getTime() <= now ? 'sent' : 'pending',
-        sent_at: new Date(scheduledFor).getTime() <= now ? scheduledFor : null,
+        // Whether a reminder is "due" is decided at display time (getDueInAppReminders),
+        // never frozen here - otherwise a reminder whose time passes while the app is
+        // closed would be hidden forever.
+        status: 'pending',
+        sent_at: null,
         attempt_count: 0,
         last_error: null,
         provider_message_id: null,
@@ -61,6 +119,66 @@ export function buildInAppReminders(
   }
 
   return reminders;
+}
+
+/**
+ * Reminders to show right now: their time has come and the hearing has not started.
+ * At most one per hearing (the most recent one), and nothing the user dismissed.
+ */
+export function getDueInAppReminders(
+  reminders: Reminder[],
+  bookings: Booking[],
+  nowMs: number,
+  dismissedIds: Set<string>,
+): Reminder[] {
+  const startByBooking = new Map<string, number>();
+  for (const b of bookings) {
+    if (b.status === 'scheduled') startByBooking.set(b.id, effectiveHearingStartMs(b.start_at));
+  }
+
+  const latestByBooking = new Map<string, Reminder>();
+  for (const r of reminders) {
+    if (r.channel !== 'in_app' || !r.booking_id) continue;
+    const start = startByBooking.get(r.booking_id);
+    if (start === undefined || !Number.isFinite(start) || nowMs >= start) continue;
+    const at = new Date(r.scheduled_for).getTime();
+    if (!Number.isFinite(at) || at > nowMs) continue;
+    const current = latestByBooking.get(r.booking_id);
+    if (!current || at > new Date(current.scheduled_for).getTime()) {
+      latestByBooking.set(r.booking_id, r);
+    }
+  }
+
+  return Array.from(latestByBooking.values())
+    .filter((r) => !dismissedIds.has(r.id))
+    .sort((a, b) => {
+      const sa = startByBooking.get(a.booking_id || '') ?? 0;
+      const sb = startByBooking.get(b.booking_id || '') ?? 0;
+      return sa - sb;
+    });
+}
+
+// ── Dismissed banner reminders survive reloads ───────────────────────────────
+
+const DISMISSED_KEY = 'vakildesk_dismissed_reminders';
+
+export function loadDismissedReminderIds(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set();
+    const raw = window.localStorage.getItem(DISMISSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function saveDismissedReminderIds(ids: Set<string>): void {
+  try {
+    if (typeof window === 'undefined') return;
+    // Keep the newest 500 so the list cannot grow forever
+    window.localStorage.setItem(DISMISSED_KEY, JSON.stringify(Array.from(ids).slice(-500)));
+  } catch {}
 }
 
 export function canDispatchWhatsApp(isDemo: boolean, client: Client | undefined): boolean {

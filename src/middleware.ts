@@ -10,6 +10,7 @@ import { isAnonymousUser } from '@/lib/supabase/auth';
  *   /login
  *   /auth/callback           — PKCE code exchange
  *   /portal/[token]          — client KYC portal (isolated)
+ *   /p/[code]                — short link that redirects to the portal
  *   /api/portal/*            — portal submission API
  *   /access-denied
  *   /icons/*, /manifest.json, /sw.js, /_next/*, /favicon*
@@ -26,6 +27,7 @@ const PUBLIC_PATHS = [
   '/auth/callback',
   '/access-denied',
   '/portal',
+  '/p',
   '/api/portal',
   '/api/demo',
   '/api/payments/webhook',
