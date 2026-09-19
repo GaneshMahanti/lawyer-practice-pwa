@@ -1,21 +1,48 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 export type Theme = 'dark' | 'light';
 
 interface ThemeContextType {
   theme: Theme;
+  setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
   theme: 'dark',
+  setTheme: () => {},
   toggleTheme: () => {},
 });
 
+// Mobile browser address-bar colour for each theme
+const THEME_COLOR: Record<Theme, string> = {
+  light: '#1a3a6b',
+  dark: '#0f0f18',
+};
+
+function applyThemeToDocument(next: Theme) {
+  try {
+    document.documentElement.setAttribute('data-theme', next);
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      metaThemeColor.setAttribute('content', THEME_COLOR[next]);
+    }
+  } catch {}
+}
+
+function persistTheme(next: Theme) {
+  try {
+    localStorage.setItem('vakildesk_theme', next);
+  } catch {}
+  try {
+    document.cookie = `vakildesk_theme=${next}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {}
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [theme, setThemeState] = useState<Theme>('dark');
 
   useEffect(() => {
     try {
@@ -30,43 +57,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       }
 
       const initial: Theme = saved === 'light' || saved === 'dark' ? saved : 'dark';
-      setTheme(initial);
-      document.documentElement.setAttribute('data-theme', initial);
-
-      // Update mobile browser address bar color
-      const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-      if (metaThemeColor) {
-        metaThemeColor.setAttribute('content', initial === 'light' ? '#1a3a6b' : '#0f0f18');
-      }
+      setThemeState(initial);
+      applyThemeToDocument(initial);
     } catch {
       document.documentElement.setAttribute('data-theme', 'dark');
     }
   }, []);
 
-  const toggleTheme = () => {
-    setTheme((prev) => {
-      const next: Theme = prev === 'dark' ? 'light' : 'dark';
-      try {
-        localStorage.setItem('vakildesk_theme', next);
-      } catch {}
-      try {
-        if (typeof document !== 'undefined') {
-          document.cookie = `vakildesk_theme=${next}; path=/; max-age=31536000; SameSite=Lax`;
-          const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-          if (metaThemeColor) {
-            metaThemeColor.setAttribute('content', next === 'light' ? '#1a3a6b' : '#0f0f18');
-          }
-        }
-      } catch {}
-      if (typeof document !== 'undefined') {
-        document.documentElement.setAttribute('data-theme', next);
-      }
-      return next;
-    });
-  };
+  // Single source of truth: state, <html data-theme>, and storage always change together.
+  const setTheme = useCallback((next: Theme) => {
+    setThemeState(next);
+    applyThemeToDocument(next);
+    persistTheme(next);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  }, [theme, setTheme]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

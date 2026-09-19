@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../lib/i18n/context';
 import { useTheme } from '../lib/theme/context';
+import { createClient } from '../lib/supabase/client';
+import { ThemeSwitch } from './ThemeSwitch';
 import type { SupportedLanguage } from '../lib/types/database';
 
 /**
@@ -45,8 +47,8 @@ function AdvocateLogo({ size = 32 }: { size?: number }) {
 
 export function Header() {
   const { language, setLanguage, t } = useLanguage();
-  const { theme, toggleTheme } = useTheme();
   const [advocateName, setAdvocateName] = useState<string>('');
+  const [isDeveloper, setIsDeveloper] = useState(false);
   const [mounted, setMounted] = useState(false);
   // Read advocate name from localStorage and cookies, and listen for updates
   useEffect(() => {
@@ -88,6 +90,18 @@ export function Header() {
     };
   }, []);
 
+  // Display-only account label (real access control is enforced on the server).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await createClient().auth.getSession();
+        if (!cancelled) setIsDeveloper(session?.user?.app_metadata?.role === 'developer');
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const displayName = mounted && advocateName
     ? `Adv. ${advocateName}`
     : 'Advocate';
@@ -98,21 +112,18 @@ export function Header() {
         <AdvocateLogo size={30} />
         <div className="header-title-group">
           <span className="header-title">{displayName}</span>
-          <span className="header-subtitle">Practice Manager</span>
+          <span
+            className="header-subtitle"
+            style={isDeveloper ? { color: 'var(--accent-gold)', fontWeight: 700 } : undefined}
+          >
+            {isDeveloper ? 'Developer account' : 'Practice Manager'}
+          </span>
         </div>
       </div>
 
       <div className="header-actions">
-        {/* Dark / Light toggle */}
-        <button
-          type="button"
-          className="theme-toggle-btn"
-          onClick={toggleTheme}
-          aria-label={mounted && theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-          title={mounted && theme === 'light' ? 'Dark mode' : 'Light mode'}
-        >
-          {mounted && theme === 'light' ? '🌙' : '☀️'}
-        </button>
+        {/* Sun / Moon theme switch (active mode is circled) */}
+        <ThemeSwitch size="sm" />
 
         <select
           className="lang-selector"

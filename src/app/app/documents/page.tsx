@@ -497,28 +497,8 @@ function DocumentTranslationContent() {
 
           {/* Consent Modal for Server Enhanced OCR */}
           {showConsentModal && (
-            <div
-              style={{
-                position: 'fixed',
-                inset: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.65)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000,
-                padding: 16,
-              }}
-            >
-              <div
-                className="card"
-                style={{
-                  maxWidth: 440,
-                  width: '100%',
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border-subtle)',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-                }}
-              >
+            <div className="modal-overlay">
+              <div className="card modal-card" style={{ maxWidth: 440 }}>
                 <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                   Advocate Consent Required
@@ -528,7 +508,6 @@ function DocumentTranslationContent() {
                 </p>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', backgroundColor: 'var(--bg-app)', padding: 10, borderRadius: 6, marginBottom: 14 }}>
                   <p style={{ margin: '0 0 6px 0' }}>• Primary provider: <strong>Sarvam Document AI</strong> (Indian languages: Telugu, Hindi, English)</p>
-                  <p style={{ margin: '0 0 6px 0' }}>• Fallback provider: OpenAI Vision (when Sarvam is unavailable)</p>
                   <p style={{ margin: '0 0 6px 0' }}>• Audit Logging: Metadata only (Advocate ID, Matter ID, Timestamp, Outcome) — written to <code>external_ocr_audit</code>.</p>
                   <p style={{ margin: 0 }}>• Privacy: Document text and client data are <strong>never</strong> stored in audit tables.</p>
                 </div>

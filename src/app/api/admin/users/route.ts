@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { requireRealAppUser } from '@/lib/auth/requestUser';
+import { requireDeveloperUser as requireDeveloper } from '@/lib/auth/requestUser';
 import { createServiceClient } from '@/lib/supabase/service';
 
 /**
@@ -18,14 +18,6 @@ import { createServiceClient } from '@/lib/supabase/service';
 
 type AllowedPlan = 'basic' | 'standard' | 'premium';
 type AllowedRole = 'developer' | 'lawyer';
-
-async function requireDeveloper(request: NextRequest) {
-  const user = await requireRealAppUser(request);
-  if (!user) return null;
-  const role = user.app_metadata?.role as string | undefined;
-  if (role !== 'developer') return null;
-  return user;
-}
 
 export async function GET(request: NextRequest) {
   const dev = await requireDeveloper(request);

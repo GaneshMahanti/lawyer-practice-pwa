@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
-import { useTheme } from '@/lib/theme/context';
+import { ThemeSwitch } from '@/components/ThemeSwitch';
 import { createClient } from '@/lib/supabase/client';
 import { persistReminderPreferences, loadReminderPreferences } from '@/lib/data/repository';
 import { REMINDER_OFFSET_OPTIONS } from '@/lib/reminders/engine';
@@ -55,7 +55,6 @@ function ShieldIcon() {
 export default function SettingsPage() {
   const router = useRouter();
   const { language, setLanguage, t } = useLanguage();
-  const { theme, toggleTheme } = useTheme();
 
   const [barCouncilNo, setBarCouncilNo] = useState('');
   const [advocateName, setAdvocateName] = useState('');
@@ -91,7 +90,9 @@ export default function SettingsPage() {
     // Check user auth state
     const checkUser = async () => {
       try {
-        if (typeof document !== 'undefined') {
+        // Local-development shortcut only. The dev-session cookie is forgeable, so it is
+        // never used to decide what the account is in production.
+        if (process.env.NODE_ENV !== 'production' && typeof document !== 'undefined') {
           const match = document.cookie.match(/(?:^|;\s*)vakildesk_dev_session=([^;]*)/);
           if (match) {
             const parsed = JSON.parse(decodeURIComponent(match[1]));
@@ -163,8 +164,6 @@ export default function SettingsPage() {
     }
   };
 
-  const isLight = theme === 'light';
-
   return (
     <div>
       <div className="section-label">{t('settings')}</div>
@@ -173,41 +172,7 @@ export default function SettingsPage() {
       <div className="card">
         <div className="card-title">Appearance</div>
 
-        <div
-          className="theme-toggle-row"
-          onClick={toggleTheme}
-          style={{ cursor: 'pointer', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              toggleTheme();
-            }
-          }}
-          aria-label="Toggle dark and light theme"
-        >
-          <div>
-            <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              {isLight ? <SunIcon /> : <MoonIcon />}
-              <span>{isLight ? 'Light mode' : 'Dark mode'}</span>
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-              {isLight
-                ? 'Navy header, crisp white background'
-                : 'OLED dark background, light grey text'}
-            </div>
-          </div>
-          <div className="toggle-switch" style={{ pointerEvents: 'none' }}>
-            <input
-              type="checkbox"
-              checked={isLight}
-              readOnly
-              aria-hidden="true"
-            />
-            <span className="toggle-slider" />
-          </div>
-        </div>
+        <ThemeSwitch showLabel />
       </div>
 
       {/* ── Hearing reminders ── */}
