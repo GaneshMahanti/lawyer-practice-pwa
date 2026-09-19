@@ -251,8 +251,12 @@ button {
   max-width: var(--max-content-width);
   margin: 0 auto;
   background-color: transparent;
+  /* NOTE: no z-index here. A z-index on .app-container / .main-content creates a
+     stacking context that traps every modal (z-index 1000) underneath the fixed
+     header and bottom nav (z-index 100). Leaving them at z-index:auto lets modal
+     overlays sit above the header and footer. The aura is earlier in the DOM, so
+     it still paints behind the app. */
   position: relative;
-  z-index: 1;
 }
 
 .main-content {
@@ -261,7 +265,6 @@ button {
   padding-top: calc(var(--demo-banner-height, 0px) + var(--header-height) + 18px);
   padding-bottom: calc(var(--nav-height) + 48px + env(safe-area-inset-bottom, 0px));
   position: relative;
-  z-index: 1;
 }
 
 /* ==============================================================================
@@ -948,11 +951,11 @@ textarea.input-field {
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 16px;
-  overflow-y: auto;
+  /* Keep the dialog clear of the notch / home indicator on phones */
+  padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px));
   animation: modalFadeIn 0.2s ease-out;
 }
 
@@ -965,8 +968,10 @@ textarea.input-field {
 .card.modal-card {
   width: 100%;
   max-width: 440px;
-  max-height: calc(100dvh - 32px);
+  max-height: 90vh; /* fallback for older browsers */
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-modal) !important;
   border: 1px solid var(--modal-border) !important;
   border-radius: var(--radius-lg);
@@ -974,21 +979,8 @@ textarea.input-field {
   color: var(--text-primary);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 var(--card-hi) !important;
   margin-bottom: 0;
-  box-sizing: border-box;
-  margin-top: auto;
-  margin-bottom: auto;
   position: relative;
   z-index: 1001;
-}
-
-.loading-spinner {
-  width: 28px;
-  height: 28px;
-  margin: 0 auto;
-  border: 3px solid var(--border-subtle);
-  border-top-color: var(--accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
 }
 
 /* ==============================================================================
@@ -1056,6 +1048,75 @@ textarea.input-field {
   justify-content: space-between;
   gap: 12px;
   padding: 4px 0;
+}
+
+/* ==============================================================================
+   Sun / Moon theme switch (<ThemeSwitch />)
+   The pill stays light grey in both themes; the ACTIVE mode sits in a circle.
+   ============================================================================== */
+.theme-switch-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.theme-switch-wrap.with-label {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+}
+
+.theme-switch-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: #e8e9ee;
+  border: 1px solid rgba(20, 36, 58, 0.08);
+  flex-shrink: 0;
+}
+
+.theme-switch-opt {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: transparent;
+  color: #1a3a6b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.theme-switch-sm .theme-switch-opt {
+  width: 30px;
+  height: 30px;
+}
+
+.theme-switch-opt.is-active {
+  background: #ffffff;
+  border-color: #1a3a6b;
+}
+
+[data-theme="dark"] .theme-switch-opt.is-active {
+  background: #0b0b12;
+  border-color: #0b0b12;
+  color: #7eb8f7;
+}
+
+.theme-switch-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ==============================================================================

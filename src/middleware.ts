@@ -11,7 +11,6 @@ import { isAnonymousUser } from '@/lib/supabase/auth';
  *   /auth/callback           — PKCE code exchange
  *   /portal/[token]          — client KYC portal (isolated)
  *   /api/portal/*            — portal submission API
- *   /api/translate           — translation
  *   /access-denied
  *   /icons/*, /manifest.json, /sw.js, /_next/*, /favicon*
  *
@@ -28,7 +27,6 @@ const PUBLIC_PATHS = [
   '/access-denied',
   '/portal',
   '/api/portal',
-  '/api/translate',
   '/api/demo',
   '/api/payments/webhook',
 ];
@@ -82,7 +80,10 @@ export async function middleware(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://placeholder.supabase.co';
 
     if (isLocalPlaceholder) {
-      const devCookie = request.cookies.get('vakildesk_dev_session')?.value;
+      // The dev-session cookie is forgeable JSON, so it is honoured ONLY outside production.
+      const devCookie = process.env.NODE_ENV !== 'production'
+        ? request.cookies.get('vakildesk_dev_session')?.value
+        : undefined;
       if (devCookie) {
         try {
           const parsed = JSON.parse(decodeURIComponent(devCookie));
