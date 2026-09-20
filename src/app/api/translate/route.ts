@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { requireWorkspaceUser } from '@/lib/auth/requestUser';
 import { isAnonymousUser } from '@/lib/supabase/auth';
 import { translateText, isSarvamConfigured } from '@/lib/sarvam';
+import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
 
 /**
@@ -37,6 +38,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: MSG_SIGN_IN }, { status: 401 });
   }
   const isDemo = isAnonymousUser(user);
+
+  // AI feature flag check (real lawyers only)
+  if (!isDemo && user.app_metadata?.role === 'lawyer' && user.email) {
+    try {
+      const service = createServiceClient() as any;
+      const { data: flags } = await service
+        .from('approved_users')
+        .select('ai_enabled')
+        .eq('email', user.email.toLowerCase())
+        .maybeSingle();
+      if (flags && flags.ai_enabled === false) {
+        return NextResponse.json({ error: 'AI features are not enabled for your account.' }, { status: 403 });
+      }
+    } catch { /* fail open */ }
+  }
 
   let body: Record<string, unknown> = {};
   try {

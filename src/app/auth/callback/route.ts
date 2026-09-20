@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
 
   const { data: approvedUser, error: queryError } = await (serviceClient as any)
     .from('approved_users')
-    .select('role, is_active')
+    .select('role, is_active, session_nonce, session_started_at')
     .eq('email', userEmail)
     .maybeSingle();
 
@@ -102,6 +102,33 @@ export async function GET(request: NextRequest) {
   }
 
   const assignedRole = approvedUser.role;
+
+  // Single-device enforcement for lawyers: block login if an active session nonce
+  // exists that was created within the last 90 days.
+  if (assignedRole === 'lawyer') {
+    const sessionAge = approvedUser.session_started_at
+      ? Date.now() - new Date(approvedUser.session_started_at).getTime()
+      : null;
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+    if (approvedUser.session_nonce && sessionAge !== null && sessionAge < ninetyDaysMs) {
+      await supabase.auth.signOut();
+      return NextResponse.redirect(new URL('/access-denied?reason=device_limit', request.url));
+    }
+  }
+
+  // Record a new session nonce and auth_user_id for the lawyer (clears any stale nonce).
+  if (assignedRole === 'lawyer') {
+    const nonce = crypto.randomUUID();
+    await (serviceClient as any)
+      .from('approved_users')
+      .update({
+        session_nonce: nonce,
+        session_started_at: new Date().toISOString(),
+        auth_user_id: user.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('email', userEmail);
+  }
 
   // Stamp role in raw_app_meta_data if not already present or out of sync
   if (user.app_metadata?.role !== assignedRole) {

@@ -25,6 +25,7 @@ import { getRequestUser } from '@/lib/auth/requestUser';
 import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { transcribeAudio, isSarvamConfigured } from '@/lib/sarvam';
 import type { SarvamLanguageCode, SarvamSTTMode } from '@/lib/sarvam';
+import { createServiceClient } from '@/lib/supabase/service';
 
 const ALLOWED_MODES: SarvamSTTMode[] = ['codemix', 'transcribe', 'translate', 'verbatim', 'translit'];
 const ALLOWED_LANG_CODES = new Set([
@@ -43,6 +44,24 @@ export async function POST(request: NextRequest) {
       },
       { status: 403 }
     );
+  }
+
+  // ── AI feature flag check (real lawyers only) ──────────────────────────────
+  if (!isAnonymousUser(user) && user.app_metadata?.role === 'lawyer' && user.email) {
+    try {
+      const service = createServiceClient() as any;
+      const { data: flags } = await service
+        .from('approved_users')
+        .select('ai_enabled')
+        .eq('email', user.email.toLowerCase())
+        .maybeSingle();
+      if (flags && flags.ai_enabled === false) {
+        return NextResponse.json(
+          { error: 'AI features are not enabled for your account. Contact support.', code: 'feature_disabled' },
+          { status: 403 }
+        );
+      }
+    } catch { /* fail open */ }
   }
 
   // ── Parse multipart form ──────────────────────────────────────────────────

@@ -45,6 +45,23 @@ export async function POST(request: NextRequest) {
   }
 
   const service = createServiceClient() as any;
+
+  // AI feature flag check (real lawyers only)
+  if (!isDemo && user.app_metadata?.role === 'lawyer' && user.email) {
+    try {
+      const { data: flags } = await service
+        .from('approved_users')
+        .select('ai_enabled')
+        .eq('email', user.email.toLowerCase())
+        .maybeSingle();
+      if (flags && flags.ai_enabled === false) {
+        return NextResponse.json(
+          { error: 'AI features are not enabled for your account. Contact support.' },
+          { status: 403 }
+        );
+      }
+    } catch { /* fail open */ }
+  }
   const contentType = request.headers.get('content-type') ?? '';
 
   // ── Route: multipart/form-data (primary path for PDF & image files) ─────────

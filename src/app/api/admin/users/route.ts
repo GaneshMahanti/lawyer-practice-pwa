@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await (service as any)
     .from('approved_users')
-    .select('id, email, name, role, plan, phone, is_active, subscription_end, created_at, updated_at')
+    .select('id, email, name, role, plan, phone, is_active, ai_enabled, notes_enabled, session_nonce, session_started_at, auth_user_id, subscription_end, created_at, updated_at')
     .order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -137,11 +137,37 @@ export async function PATCH(request: NextRequest) {
     updates.phone = body.phone ? String(body.phone).trim() : null;
   }
 
+  if ('ai_enabled' in body) updates.ai_enabled = !!body.ai_enabled;
+  if ('notes_enabled' in body) updates.notes_enabled = !!body.notes_enabled;
+
+  // Admin force-logout: clear session nonce and revoke Supabase session.
+  const forceLogout = body.force_logout === true;
+  if (forceLogout) {
+    updates.session_nonce = null;
+    updates.session_started_at = null;
+  }
+
   let service: ReturnType<typeof createServiceClient>;
   try {
     service = createServiceClient();
   } catch {
     return NextResponse.json({ error: 'Service key not configured on server.' }, { status: 503 });
+  }
+
+  // If force-logout, look up auth_user_id to revoke the Supabase session.
+  if (forceLogout) {
+    const { data: target } = await (service as any)
+      .from('approved_users')
+      .select('auth_user_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (target?.auth_user_id) {
+      try {
+        await (service as any).auth.admin.signOut(target.auth_user_id, 'global');
+      } catch {
+        // Non-fatal: nonce is cleared regardless.
+      }
+    }
   }
 
   const { data, error } = await (service as any)

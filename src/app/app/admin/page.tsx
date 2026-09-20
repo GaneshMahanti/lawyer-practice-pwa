@@ -13,6 +13,10 @@ interface ApprovedUser {
   plan: 'basic' | 'standard' | 'premium';
   phone: string | null;
   is_active: boolean;
+  ai_enabled: boolean;
+  notes_enabled: boolean;
+  session_nonce: string | null;
+  session_started_at: string | null;
   subscription_end: string | null;
   created_at: string;
   updated_at: string;
@@ -186,6 +190,22 @@ export default function AdminPage() {
       setUsers((prev) => prev.filter((u) => u.id !== id));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const forceLogout = async (u: ApprovedUser) => {
+    if (!confirm(`Force logout ${u.name || u.email}? Their current session will be revoked immediately.`)) return;
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: u.id, force_logout: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Force logout failed');
+      setUsers((prev) => prev.map((x) => x.id === u.id ? { ...x, ...data.user } : x));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Force logout failed');
     }
   };
 
@@ -413,6 +433,57 @@ export default function AdminPage() {
                     </div>
                   </div>
 
+                  {/* Feature access toggles (lawyers only) */}
+                  {u.role === 'lawyer' && (
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => patchUser(u.id, { ai_enabled: !u.ai_enabled })}
+                        className="action-btn"
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '3px 10px',
+                          background: u.ai_enabled ? 'var(--status-success-bg)' : 'var(--bg-surface-elevated)',
+                          color: u.ai_enabled ? 'var(--status-success)' : 'var(--text-muted)',
+                          border: `1px solid ${u.ai_enabled ? 'var(--status-success)' : 'var(--border-subtle)'}`,
+                        }}
+                        title={u.ai_enabled ? 'Click to disable AI features' : 'Click to enable AI features'}
+                      >
+                        AI {u.ai_enabled ? 'ON' : 'OFF'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => patchUser(u.id, { notes_enabled: !u.notes_enabled })}
+                        className="action-btn"
+                        style={{
+                          fontSize: '0.72rem',
+                          padding: '3px 10px',
+                          background: u.notes_enabled ? 'var(--status-success-bg)' : 'var(--bg-surface-elevated)',
+                          color: u.notes_enabled ? 'var(--status-success)' : 'var(--text-muted)',
+                          border: `1px solid ${u.notes_enabled ? 'var(--status-success)' : 'var(--border-subtle)'}`,
+                        }}
+                        title={u.notes_enabled ? 'Click to disable Notes/Diary' : 'Click to enable Notes/Diary'}
+                      >
+                        Notes {u.notes_enabled ? 'ON' : 'OFF'}
+                      </button>
+                      {u.session_nonce && (
+                        <span style={{
+                          fontSize: '0.72rem',
+                          padding: '3px 10px',
+                          borderRadius: 999,
+                          background: 'var(--accent-primary-dim)',
+                          color: 'var(--accent-primary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--status-success)', display: 'inline-block' }} />
+                          Active session
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, fontSize: '0.76rem' }}>
                     <span style={{
                       color: expired ? 'var(--status-danger)' : expiring ? 'var(--status-warning)' : 'var(--text-muted)',
@@ -446,6 +517,16 @@ export default function AdminPage() {
                       >
                         {u.is_active ? 'Pause' : 'Activate'}
                       </button>
+                      {u.role === 'lawyer' && u.session_nonce && (
+                        <button
+                          type="button"
+                          onClick={() => forceLogout(u)}
+                          className="action-btn"
+                          style={{ fontSize: '0.72rem', padding: '3px 8px', color: 'var(--status-warning)' }}
+                        >
+                          Force Logout
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => deleteUser(u.id, u.email)}

@@ -42,6 +42,15 @@ function UnifiedNotesContent() {
   const searchParams = useSearchParams();
   const matterFilterParam = searchParams.get('matter');
 
+  const [notesEnabled, setNotesEnabled] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch('/api/user/features')
+      .then((r) => r.json())
+      .then((d) => setNotesEnabled(d.notes_enabled !== false))
+      .catch(() => setNotesEnabled(true));
+  }, []);
+
   const [notes, setNotes] = useState<DiaryEntry[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [matters, setMatters] = useState<Matter[]>([]);
@@ -573,6 +582,20 @@ function UnifiedNotesContent() {
     const secs = s % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
+
+  if (notesEnabled === false) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: 12 }}>📓</div>
+        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+          Notes & Diary Not Available
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: 300, margin: '0 auto' }}>
+          Notes and Diary are not included in your current plan. Contact support to upgrade.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ paddingBottom: 64 }}>

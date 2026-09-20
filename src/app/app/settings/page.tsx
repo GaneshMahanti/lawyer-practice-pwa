@@ -154,8 +154,9 @@ export default function SettingsPage() {
       if (typeof document !== 'undefined') {
         document.cookie = 'vakildesk_dev_session=; path=/; max-age=0; SameSite=Lax';
       }
-      const supabase = createClient();
-      await supabase.auth.signOut();
+      // Call the server-side logout API so the session nonce is cleared
+      // (required for single-device enforcement to allow next login).
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
       router.push('/login');
       router.refresh();
     } catch {
