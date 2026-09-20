@@ -4,6 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/lib/supabase/service';
 import { createServerClient } from '@supabase/ssr';
 
+const DEMO_IP_LIMIT = 5;       // max demo sessions per IP per hour
+const DEMO_IP_WINDOW_MS = 60 * 60 * 1000;   // 1 hour
+const DEMO_IP_CLEANUP_MS = 2 * 60 * 60 * 1000; // delete rows older than 2 hours
+
 export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -14,6 +18,40 @@ export async function POST(request: NextRequest) {
 
   try {
     const service = createServiceClient() as any;
+
+    // ── Per-IP rate limit (uses Postgres; serverless memory is not shared) ──────
+    const ip =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'unknown';
+
+    if (ip !== 'unknown') {
+      const windowStart = new Date(Date.now() - DEMO_IP_WINDOW_MS).toISOString();
+      const cleanupCutoff = new Date(Date.now() - DEMO_IP_CLEANUP_MS).toISOString();
+
+      // Cheap cleanup of old rows (best-effort; non-fatal if table doesn't exist yet)
+      try {
+        await service.from('demo_rate_limit').delete().lt('created_at', cleanupCutoff);
+        const { count } = await service
+          .from('demo_rate_limit')
+          .select('id', { count: 'exact', head: true })
+          .eq('ip', ip)
+          .gte('created_at', windowStart);
+
+        if (typeof count === 'number' && count >= DEMO_IP_LIMIT) {
+          return NextResponse.json(
+            { error: 'Too many demo sessions from this device. Please try again in an hour.' },
+            { status: 429 }
+          );
+        }
+
+        await service.from('demo_rate_limit').insert({ ip });
+      } catch {
+        // Rate limit table may not exist yet (migration pending). Fail open so
+        // the demo still works; the developer will apply the migration separately.
+      }
+    }
+
     const demoId = crypto.randomUUID();
     const demoEmail = `demo_${demoId.slice(0, 8)}_${Date.now()}@demo.vakildesk.internal`;
     const demoPassword = `DemoPass_${crypto.randomUUID()}`;

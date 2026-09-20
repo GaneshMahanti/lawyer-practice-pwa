@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceClient } from '@/lib/supabase/service';
+import { logServerError } from '@/lib/log/serverLog';
 
 export async function POST(request: NextRequest) {
   try {
@@ -119,11 +120,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 4. Determine next status based on fees and payNow flag:
+    // 4. Determine next status.
+    // Portal submissions NEVER auto-activate a client even if the client claims to have
+    // paid (payNow: true). A client-sent flag cannot be trusted as payment proof.
+    // The lawyer manually confirms payment in the Clients screen → /api/payments/accept.
     const feeSnapshot = invite.fee_snapshot || [];
     const hasFeesToPay = Array.isArray(feeSnapshot) && feeSnapshot.some((f: any) => f.amount > 0);
-    const isPayingNow = Boolean(body.payNow);
-    const nextStatus = !hasFeesToPay || isPayingNow ? 'completed' : 'payment_pending';
+    const clientClaimedPayment = Boolean(body.payNow); // recorded in audit only; never trusted for activation
+    const nextStatus = hasFeesToPay ? 'payment_pending' : 'completed';
 
     // 5. Create or link exactly ONE Client record idempotently
     let targetClientId: string | null = invite.client_id || null;
@@ -214,77 +218,29 @@ export async function POST(request: NextRequest) {
             owner_id: invite.owner_id,
             fee_type: f.fee_type,
             amount: f.amount,
-            payment_status: isPayingNow ? 'paid' : 'unpaid',
+            payment_status: 'unpaid',
             created_at: nowIso,
           });
         }
       }
 
-      if (isPayingNow) {
-        // Mark all client fees as paid
-        await db
-          .from('client_fees')
-          .update({ payment_status: 'paid' })
-          .eq('client_id', targetClientId);
-
-        // Compute total and record invoice + payment
-        const totalAmountRupees = feeSnapshot.reduce((sum: number, f: any) => sum + Number(f.amount || 0), 0);
-        const totalAmountPaise = Math.round(totalAmountRupees * 100);
-        const invoiceNumber = `INV-${Date.now()}`;
-        const invoiceId = crypto.randomUUID();
-        const payMethod = body.paymentMethod === 'razorpay' ? 'razorpay' : 'upi';
-
-        await db
-          .from('invoices')
-          .insert({
-            id: invoiceId,
-            owner_id: invite.owner_id,
-            client_id: targetClientId,
-            invoice_number: invoiceNumber,
-            description: `Legal Representation Fee (${payMethod.toUpperCase()} Auto-Verified)`,
-            amount_paise: totalAmountPaise,
-            invoice_status: 'paid',
-            due_at: nowIso,
-            payment_link_status: 'paid',
-            razorpay_payment_link_id: null,
-            razorpay_payment_link_url: null,
-            created_at: nowIso,
-            updated_at: nowIso,
-          });
-
-        await db
-          .from('payments')
-          .insert({
-            id: crypto.randomUUID(),
-            owner_id: invite.owner_id,
-            client_id: targetClientId,
-            invoice_id: invoiceId,
-            amount_paise: totalAmountPaise,
-            razorpay_payment_id: null,
-            razorpay_payment_link_id: null,
-            payment_status: 'captured',
-            paid_at: nowIso,
-            provider_event_id: `portal_${payMethod}_${invite.id}`,
-            created_at: nowIso,
-          });
-
+      // If the client claimed payment, write an audit note so the lawyer sees it.
+      // The lawyer MUST verify this manually in the Clients screen; nothing is
+      // activated or recorded as paid here.
+      if (clientClaimedPayment) {
         await db
           .from('audit_logs')
           .insert({
             id: crypto.randomUUID(),
             owner_id: invite.owner_id,
-            action: 'payment.portal_auto_verified',
+            action: 'payment.portal_claim_received',
             resource_type: 'client',
             resource_id: targetClientId,
             metadata_json: {
-              lawyer_id: invite.owner_id,
-              client_id: targetClientId,
               invite_id: invite.id,
-              amount_paise: totalAmountPaise,
-              method: payMethod,
-              timestamp: nowIso,
+              note: 'Client indicated payment on portal. Awaiting lawyer verification.',
             },
-            outcome: 'success',
+            outcome: 'pending',
             created_at: nowIso,
           });
       }
@@ -304,7 +260,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, status: nextStatus, clientId: targetClientId });
   } catch (err) {
-    console.error('Portal submit unexpected exception:', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    await logServerError('portal/submit', err);
+    return NextResponse.json({ error: 'Submission failed. Please try again.' }, { status: 500 });
   }
 }

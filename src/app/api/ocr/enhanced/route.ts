@@ -4,6 +4,16 @@ import { getRequestUser } from '@/lib/auth/requestUser';
 import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { createServiceClient } from '@/lib/supabase/service';
 import { extractDocumentText, isSarvamConfigured, DOC_AI_MAX_PAGES } from '@/lib/sarvam';
+import { logServerError } from '@/lib/log/serverLog';
+import { resolveOwner, estimateOcr, countPdfPages, reserve, settle, release } from '@/lib/ai/metering';
+
+const MSG_OCR: Record<string, string> = {
+  rate_limited:     'Too many requests. Please wait a moment and try again.',
+  quota_exhausted:  'Document scanning credits exhausted. Please contact support.',
+  validation_error: 'The document could not be scanned. Check the file format and try again.',
+  timeout:          'Document scanning took too long. Try a shorter document.',
+  auth_error:       'Document scanning service authentication failed. Contact support.',
+};
 
 /**
  * POST /api/ocr/enhanced
@@ -118,7 +128,7 @@ async function handleMultipartOcr(
   };
   const language = rawLang ? (LANG_MAP[rawLang] ?? rawLang) : undefined;
 
-  // 1. Demo Mode: return deterministic mock OCR
+  // 1. Demo Mode: return deterministic mock OCR, no metering
   if (isDemo) {
     const demoResult = await extractDocumentText({
       fileBlob: fileEntry,
@@ -156,6 +166,15 @@ async function handleMultipartOcr(
     } catch {}
   }
 
+  // 3. Metering: estimate page count and reserve credits
+  const pageCount = pages ? pages.length : await countPdfPages(fileEntry, DOC_AI_MAX_PAGES);
+  const ownerId = await resolveOwner(service, userId);
+  const est = estimateOcr(pageCount);
+  const meter = await reserve(service, ownerId, userId, 'ocr', est.paise);
+  if (!meter.ok) {
+    return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+  }
+
   try {
     const result = await extractDocumentText({
       fileBlob: fileEntry,
@@ -168,7 +187,8 @@ async function handleMultipartOcr(
     });
 
     if (!result.ok) {
-      // Audit failure metadata only
+      await release(service, meter.reserveId);
+
       try {
         await service.from('external_ocr_audit').insert({
           owner_id: userId,
@@ -188,13 +208,17 @@ async function handleMultipartOcr(
         : result.code === 'timeout' ? 504
         : 502;
 
+      await logServerError('ocr/enhanced', new Error(result.message), {
+        code: result.code, userId,
+      });
       return NextResponse.json(
-        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { error: MSG_OCR[result.code] ?? 'Document scan failed. Please try again.', code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
         { status: httpStatus }
       );
     }
 
-    // Audit success metadata
+    await settle(service, meter.reserveId, est.paise, est.units);
+
     try {
       await service.from('external_ocr_audit').insert({
         owner_id: userId,
@@ -213,7 +237,8 @@ async function handleMultipartOcr(
       warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
-    console.error('[ocr/enhanced] Sarvam DocAI error:', error);
+    await release(service, meter.reserveId);
+    await logServerError('ocr/enhanced', error, { userId, matterId });
     try {
       await service.from('external_ocr_audit').insert({
         owner_id: userId,
@@ -224,7 +249,7 @@ async function handleMultipartOcr(
     } catch {}
 
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed. Please try again.', code: 'service_error', retryable: true },
+      { error: 'Document scan failed. Please try again.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }
@@ -269,7 +294,7 @@ async function handleJsonOcr(
       } as Record<string, string>)[rawLang] ?? rawLang
     : undefined;
 
-  // 1. Demo Mode
+  // 1. Demo Mode: no metering
   if (isDemo) {
     const demoResult = await extractDocumentText({
       fileBlob: new Blob(['demo']),
@@ -311,6 +336,15 @@ async function handleJsonOcr(
     }
     const blob = new Blob([bytes], { type: mime });
 
+    // 3. Metering: images are always 1 page; PDFs scanned for page count
+    const pageCount = await countPdfPages(blob, DOC_AI_MAX_PAGES);
+    const ownerId = await resolveOwner(service, userId);
+    const est = estimateOcr(pageCount);
+    const meter = await reserve(service, ownerId, userId, 'ocr', est.paise);
+    if (!meter.ok) {
+      return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+    }
+
     const result = await extractDocumentText({
       fileBlob: blob,
       outputFormat: 'md',
@@ -320,6 +354,7 @@ async function handleJsonOcr(
     });
 
     if (!result.ok) {
+      await release(service, meter.reserveId);
       try {
         await service.from('external_ocr_audit').insert({
           owner_id: userId,
@@ -337,11 +372,16 @@ async function handleJsonOcr(
         : result.code === 'timeout' ? 504
         : 502;
 
+      await logServerError('ocr/enhanced', new Error(result.message), {
+        code: result.code, userId,
+      });
       return NextResponse.json(
-        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { error: MSG_OCR[result.code] ?? 'Document scan failed. Please try again.', code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
         { status: httpStatus }
       );
     }
+
+    await settle(service, meter.reserveId, est.paise, est.units);
 
     try {
       await service.from('external_ocr_audit').insert({
@@ -359,9 +399,9 @@ async function handleJsonOcr(
       warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
-    console.error('[ocr/enhanced] Sarvam DocAI JSON handler error:', error);
+    await logServerError('ocr/enhanced/json', error, { userId });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed.', code: 'service_error', retryable: true },
+      { error: 'Document scan failed. Please try again.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }

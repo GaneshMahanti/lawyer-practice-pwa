@@ -26,6 +26,16 @@ import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { transcribeAudio, isSarvamConfigured } from '@/lib/sarvam';
 import type { SarvamLanguageCode, SarvamSTTMode } from '@/lib/sarvam';
 import { createServiceClient } from '@/lib/supabase/service';
+import { logServerError } from '@/lib/log/serverLog';
+import { resolveOwner, estimateStt, reserve, settle, release } from '@/lib/ai/metering';
+
+const MSG_STT: Record<string, string> = {
+  rate_limited:      'Too many requests. Please wait a moment and try again.',
+  quota_exhausted:   'Transcription credits exhausted. Please contact support.',
+  validation_error:  'The audio file could not be transcribed. Check the format and try again.',
+  timeout:           'Transcription took too long. Please try a shorter clip.',
+  auth_error:        'Transcription service authentication failed. Contact support.',
+};
 
 const ALLOWED_MODES: SarvamSTTMode[] = ['codemix', 'transcribe', 'translate', 'verbatim', 'translit'];
 const ALLOWED_LANG_CODES = new Set([
@@ -93,11 +103,30 @@ export async function POST(request: NextRequest) {
     ? (rawMode as SarvamSTTMode)
     : 'codemix';
 
-  // ── Key check: real advocates get 503 if key is missing ───────────────────
-  // Real users must never silently receive demo/mock transcripts.
   const isDemo = isAnonymousUser(user);
 
-  if (!isDemo && !isSarvamConfigured()) {
+  // ── Demo path: fixed mock transcript, no Sarvam call, no metering ────────
+  if (isDemo) {
+    const demoResult = await transcribeAudio({
+      audioBlob: fileEntry,
+      languageCode,
+      mode,
+      isDemoMode: true,
+      timeoutMs: 40_000,
+    });
+    if (!demoResult.ok) {
+      return NextResponse.json({ error: 'Demo transcription unavailable.', code: demoResult.code }, { status: 503 });
+    }
+    return NextResponse.json({
+      transcript: demoResult.data.transcript,
+      language_code: demoResult.data.language_code ?? languageCode,
+      provider: 'demo',
+      request_id: demoResult.requestId,
+    });
+  }
+
+  // ── Key check: real advocates get 503 if key is missing ───────────────────
+  if (!isSarvamConfigured()) {
     return NextResponse.json(
       {
         error:
@@ -109,34 +138,51 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Metering: reserve credits before calling Sarvam ─────────────────────
+  const service = createServiceClient() as any;
+  const ownerId = await resolveOwner(service, user.id);
+  const est = await estimateStt(fileEntry);
+  const meter = await reserve(service, ownerId, user.id, 'stt', est.paise);
+  if (!meter.ok) {
+    return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+  }
+
   // ── Call Sarvam STT ───────────────────────────────────────────────────────
   const result = await transcribeAudio({
     audioBlob: fileEntry,
     languageCode,
     mode,
-    isDemoMode: isDemo,
-    timeoutMs: 40_000, // generous timeout for longer recordings
+    isDemoMode: false,
+    timeoutMs: 40_000,
   });
 
   if (!result.ok) {
+    await release(service, meter.reserveId);
+
     const httpStatus =
-      result.code === 'auth_error' ? 401
+      result.code === 'auth_error'       ? 401
       : result.code === 'quota_exhausted' ? 402
-      : result.code === 'rate_limited' ? 429
-      : result.code === 'validation_error' ? 422
-      : result.code === 'timeout' ? 504
+      : result.code === 'rate_limited'    ? 429
+      : result.code === 'validation_error'? 422
+      : result.code === 'timeout'         ? 504
       : 502;
 
+    await logServerError('voice/transcribe', new Error(result.message), {
+      code: result.code, userId: user.id,
+    });
+
     return NextResponse.json(
-      { error: result.message, code: result.code },
+      { error: MSG_STT[result.code] ?? 'Transcription failed. Please try again.', code: result.code },
       { status: httpStatus }
     );
   }
 
+  await settle(service, meter.reserveId, est.paise, est.units);
+
   return NextResponse.json({
     transcript: result.data.transcript,
     language_code: result.data.language_code ?? languageCode,
-    provider: isDemo ? 'demo' : 'sarvam',
+    provider: 'sarvam',
     request_id: result.requestId,
   });
 }

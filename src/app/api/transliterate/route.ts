@@ -33,7 +33,9 @@ import type { NextRequest } from 'next/server';
 import { requireWorkspaceUser } from '@/lib/auth/requestUser';
 import { isAnonymousUser } from '@/lib/supabase/auth';
 import { transliterateText, isSarvamConfigured } from '@/lib/sarvam';
+import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
+import { resolveOwner, estimateText, reserve, settle, release } from '@/lib/ai/metering';
 
 const MSG_SIGN_IN = 'Please sign in to use script conversion.';
 const MSG_UNAVAILABLE = 'Script conversion is unavailable right now. Please try again later.';
@@ -97,6 +99,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: MSG_UNAVAILABLE, code: 'not_configured' }, { status: 503 });
   }
 
+  // ── Metering ─────────────────────────────────────────────────────────────
+  const service = createServiceClient() as any;
+  const ownerId = await resolveOwner(service, user.id);
+  const est = estimateText(text.length);
+  const meter = await reserve(service, ownerId, user.id, 'transliterate', est.paise);
+  if (!meter.ok) {
+    return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+  }
+
   const result = await transliterateText({
     text,
     sourceLang,
@@ -106,12 +117,15 @@ export async function POST(request: NextRequest) {
   });
 
   if (result.ok) {
+    await settle(service, meter.reserveId, est.paise, est.units);
     return NextResponse.json({
       transliterated_text: result.data.transliterated_text,
       provider: 'sarvam',
       request_id: result.requestId,
     });
   }
+
+  await release(service, meter.reserveId);
 
   await logServerError('api/transliterate', new Error(result.message), {
     code: result.code,

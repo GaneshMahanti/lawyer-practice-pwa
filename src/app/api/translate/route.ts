@@ -5,6 +5,7 @@ import { isAnonymousUser } from '@/lib/supabase/auth';
 import { translateText, isSarvamConfigured } from '@/lib/sarvam';
 import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
+import { resolveOwner, estimateText, reserve, settle, release } from '@/lib/ai/metering';
 
 /**
  * POST /api/translate  -  Telugu / Hindi / English translation (Sarvam AI).
@@ -104,15 +105,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: MSG_UNAVAILABLE, provider: 'none' }, { status: 503 });
   }
 
+  // ── Metering ─────────────────────────────────────────────────────────────
+  const service = createServiceClient() as any;
+  const ownerId = await resolveOwner(service, user.id);
+  const est = estimateText(trimmed.length);
+  const meter = await reserve(service, ownerId, user.id, 'translate', est.paise);
+  if (!meter.ok) {
+    return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+  }
+
   const result = await translateText({
     text: trimmed,
     sourceLang,
     targetLang,
-    mode: 'formal', // Legal text always uses formal register
+    mode: 'formal',
     isDemoMode: false,
   });
 
   if (result.ok) {
+    await settle(service, meter.reserveId, est.paise, est.units);
     const translation = result.data.translated_text;
     return NextResponse.json({
       success: true,
@@ -122,7 +133,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Failure: full detail to the server log, one simple message to the user.
+  await release(service, meter.reserveId);
+
   await logServerError('api/translate', new Error(result.message), {
     code: result.code,
     httpStatus: result.httpStatus,
