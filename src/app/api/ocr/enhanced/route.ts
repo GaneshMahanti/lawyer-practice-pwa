@@ -4,6 +4,15 @@ import { getRequestUser } from '@/lib/auth/requestUser';
 import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
 import { createServiceClient } from '@/lib/supabase/service';
 import { extractDocumentText, isSarvamConfigured, DOC_AI_MAX_PAGES } from '@/lib/sarvam';
+import { logServerError } from '@/lib/log/serverLog';
+
+const MSG_OCR: Record<string, string> = {
+  rate_limited:     'Too many requests. Please wait a moment and try again.',
+  quota_exhausted:  'Document scanning credits exhausted. Please contact support.',
+  validation_error: 'The document could not be scanned. Check the file format and try again.',
+  timeout:          'Document scanning took too long. Try a shorter document.',
+  auth_error:       'Document scanning service authentication failed. Contact support.',
+};
 
 /**
  * POST /api/ocr/enhanced
@@ -188,8 +197,11 @@ async function handleMultipartOcr(
         : result.code === 'timeout' ? 504
         : 502;
 
+      await logServerError('ocr/enhanced', new Error(result.message), {
+        code: result.code, userId,
+      });
       return NextResponse.json(
-        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { error: MSG_OCR[result.code] ?? 'Document scan failed. Please try again.', code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
         { status: httpStatus }
       );
     }
@@ -213,7 +225,7 @@ async function handleMultipartOcr(
       warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
-    console.error('[ocr/enhanced] Sarvam DocAI error:', error);
+    await logServerError('ocr/enhanced', error, { userId, matterId });
     try {
       await service.from('external_ocr_audit').insert({
         owner_id: userId,
@@ -224,7 +236,7 @@ async function handleMultipartOcr(
     } catch {}
 
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed. Please try again.', code: 'service_error', retryable: true },
+      { error: 'Document scan failed. Please try again.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }
@@ -337,8 +349,11 @@ async function handleJsonOcr(
         : result.code === 'timeout' ? 504
         : 502;
 
+      await logServerError('ocr/enhanced', new Error(result.message), {
+        code: result.code, userId,
+      });
       return NextResponse.json(
-        { error: result.message, code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
+        { error: MSG_OCR[result.code] ?? 'Document scan failed. Please try again.', code: result.code, retryable: result.code !== 'auth_error' && result.code !== 'validation_error' },
         { status: httpStatus }
       );
     }
@@ -359,9 +374,9 @@ async function handleJsonOcr(
       warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
-    console.error('[ocr/enhanced] Sarvam DocAI JSON handler error:', error);
+    await logServerError('ocr/enhanced/json', error, { userId });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Document AI extraction failed.', code: 'service_error', retryable: true },
+      { error: 'Document scan failed. Please try again.', code: 'service_error', retryable: true },
       { status: 500 }
     );
   }
