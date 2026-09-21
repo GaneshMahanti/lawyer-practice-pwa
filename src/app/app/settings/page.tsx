@@ -6,6 +6,7 @@ import { useLanguage } from '@/lib/i18n/context';
 import { ThemeSwitch } from '@/components/ThemeSwitch';
 import { PushNotificationsCard } from '@/components/PushNotificationsCard';
 import { AiUsageDeveloperCard } from '@/components/AiUsageDeveloperCard';
+import { AiCreditsCard } from '@/components/AiCreditsCard';
 import { createClient } from '@/lib/supabase/client';
 import { persistReminderPreferences, loadReminderPreferences } from '@/lib/data/repository';
 import { REMINDER_OFFSET_OPTIONS } from '@/lib/reminders/engine';
@@ -447,6 +448,9 @@ export default function SettingsPage() {
           </button>
         </form>
       </div>
+
+      {/* ── AI credits (real lawyers only; developer uses the developer card below) ── */}
+      {userRole === 'lawyer' && <AiCreditsCard />}
 
       {/* ════════════════════════════════════════════════════════════════════
           DEVELOPER-ONLY SECTION — Lawyer Management
