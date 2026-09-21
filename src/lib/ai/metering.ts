@@ -86,6 +86,27 @@ export async function resolveOwner(
   return userId;
 }
 
+// ── Developer's own usage (free of wallets, still logged) ─────────────────────
+
+/**
+ * The developer pays Sarvam directly, so the developer's own AI use is never charged to a
+ * lawyer wallet and never blocked by credits. It IS logged (ledger kind 'internal_usage')
+ * so the developer dashboard can show it and the Sarvam balance estimate stays right.
+ * reserve() hands back a marker id: internal:<feature>:<userId>:<uuid>.
+ */
+const INTERNAL_PREFIX = 'internal:';
+
+async function isDeveloperActor(service: any, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await service.auth.admin.getUserById(userId);
+    if (error || !data?.user) return false;
+    // Role comes from app_metadata only (set by the server, never by the user).
+    return data.user.app_metadata?.role === 'developer';
+  } catch {
+    return false; // if in doubt, meter normally
+  }
+}
+
 // ── Cost estimators ───────────────────────────────────────────────────────────
 
 /**
@@ -174,6 +195,15 @@ export async function reserve(
     };
   }
 
+  // Developer account: free of wallets, but logged (see settle()).
+  if (await isDeveloperActor(service, actorUserId)) {
+    return {
+      ok: true,
+      reserveId: `${INTERNAL_PREFIX}${feature}:${actorUserId}:${crypto.randomUUID()}`,
+      estimatedPaise,
+    };
+  }
+
   // Per-minute velocity check
   try {
     const windowStart = new Date(Date.now() - 60_000).toISOString();
@@ -233,6 +263,26 @@ export async function settle(
   actualPaise: number,
   units?: number
 ): Promise<void> {
+  if (reserveId.startsWith(INTERNAL_PREFIX)) {
+    try {
+      const [, feature, actorUserId] = reserveId.split(':');
+      const { error } = await service.from('ai_ledger').insert({
+        owner_id: actorUserId,
+        actor_user_id: actorUserId,
+        kind: 'internal_usage',
+        bucket: 'internal',
+        amount_paise: -Math.abs(actualPaise),
+        feature,
+        units: units ?? null,
+        request_ref: 'developer',
+      });
+      if (error) await logServerError('ai/metering/internal-usage', new Error(error.message), { feature });
+    } catch (err) {
+      await logServerError('ai/metering/internal-usage', err);
+    }
+    return;
+  }
+
   try {
     const { error } = await service.rpc('ai_settle', {
       p_reserve_id: reserveId,
@@ -253,6 +303,7 @@ export async function settle(
  * Idempotent — safe to call twice.
  */
 export async function release(service: any, reserveId: string): Promise<void> {
+  if (reserveId.startsWith(INTERNAL_PREFIX)) return; // developer usage: nothing was reserved
   try {
     const { error } = await service.rpc('ai_release', { p_reserve_id: reserveId });
     if (error) {
@@ -320,7 +371,9 @@ function meterErrorFromPg(pgMessage: string): MeterError {
     return {
       ok: false,
       code: m.includes('no_wallet') ? 'no_wallet' : 'insufficient_credits',
-      message: 'AI credits finished. Please recharge in Settings.',
+      message: m.includes('no_wallet')
+        ? 'You have no AI credits yet. Please recharge in Settings.'
+        : 'AI credits finished. Please recharge in Settings.',
       httpStatus: 402,
     };
   }
