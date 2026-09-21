@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
 import { ThemeSwitch } from '@/components/ThemeSwitch';
 import { PushNotificationsCard } from '@/components/PushNotificationsCard';
+import { AiUsageDeveloperCard } from '@/components/AiUsageDeveloperCard';
 import { createClient } from '@/lib/supabase/client';
 import { persistReminderPreferences, loadReminderPreferences } from '@/lib/data/repository';
 import { REMINDER_OFFSET_OPTIONS } from '@/lib/reminders/engine';
@@ -47,6 +48,16 @@ function dateInputFromIso(iso: string | null): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return '';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** 10-digit Indian mobile, with or without +91 / 0 in front. Mirrors normalizeIndianMobile on the server. */
+function isValidIndianMobile(value: string): boolean {
+  const digits = value.replace(/\D/g, '');
+  return (
+    digits.length === 10 ||
+    (digits.length === 12 && digits.startsWith('91')) ||
+    (digits.length === 11 && digits.startsWith('0'))
+  );
 }
 
 function defaultOneYearFromToday(): string {
@@ -240,6 +251,11 @@ export default function SettingsPage() {
   // ── Lawyer management handlers ──────────────────────────────────────────────
   const handleAddLawyer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if ((formRole === 'lawyer' || formPhone.trim()) && !isValidIndianMobile(formPhone)) {
+      setSubmitMsg(null);
+      setSubmitErr('Enter a valid 10-digit mobile number. The lawyer must type this same number when they onboard.');
+      return;
+    }
     setSubmitting(true);
     setSubmitErr(null);
     setSubmitMsg(null);
@@ -301,7 +317,7 @@ export default function SettingsPage() {
   };
 
   const forceLogout = async (u: ApprovedUser) => {
-    if (!confirm(`Force logout ${u.name || u.email}? Their current session will be revoked immediately.`)) return;
+    if (!confirm(`Force logout ${u.name || u.email}? Their device will be signed out within a minute, and they can sign in again straight away.`)) return;
     await patchUser(u.id, { force_logout: true } as any);
   };
 
@@ -463,7 +479,7 @@ export default function SettingsPage() {
               <span>Add / update a lawyer</span>
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: 12 }}>
-              Enter the lawyer's Gmail address so they can sign in. Submitting an existing email updates that record instead of creating a duplicate.
+              Enter the lawyer's Gmail address and mobile number. During onboarding the lawyer must type this same email and number; anything else is rejected and they are told to contact you. Submitting an existing email updates that record instead of creating a duplicate.
             </p>
 
             <form onSubmit={handleAddLawyer}>
@@ -491,13 +507,16 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div>
-                  <label className="input-label">Phone (optional)</label>
+                  <label className="input-label">
+                    {formRole === 'lawyer' ? 'Mobile number *' : 'Mobile number (optional)'}
+                  </label>
                   <input
                     type="tel"
                     className="input-field"
                     placeholder="10 digit mobile"
                     value={formPhone}
                     onChange={(e) => setFormPhone(e.target.value)}
+                    required={formRole === 'lawyer'}
                   />
                 </div>
                 <div>
@@ -558,6 +577,9 @@ export default function SettingsPage() {
           </div>
 
           {/* ── Lawyer list ── */}
+          {/* Developer-only: every lawyer's AI credits and usage */}
+          <AiUsageDeveloperCard />
+
           <div className="card">
             <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Lawyers ({users.filter((u) => u.role === 'lawyer').length})</span>
