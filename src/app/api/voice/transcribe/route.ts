@@ -21,8 +21,8 @@
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getRequestUser } from '@/lib/auth/requestUser';
-import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
+import { requireWorkspaceUser } from '@/lib/auth/requestUser';
+import { isAnonymousUser } from '@/lib/supabase/auth';
 import { transcribeAudio, isSarvamConfigured } from '@/lib/sarvam';
 import type { SarvamLanguageCode, SarvamSTTMode } from '@/lib/sarvam';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -44,15 +44,15 @@ const ALLOWED_LANG_CODES = new Set([
 ]);
 
 export async function POST(request: NextRequest) {
-  // ── Auth: allow approved advocates and deterministic demo users ────────────
-  const user = await getRequestUser(request);
-  if (!user || (!isAnonymousUser(user) && !isRealAppUser(user))) {
+  // ── Auth: enforces one-active-device rule for lawyers ────────────────────
+  const user = await requireWorkspaceUser(request);
+  if (!user) {
     return NextResponse.json(
       {
         error: 'Voice transcription is only available to approved advocates. Please sign in.',
         code: 'auth_error',
       },
-      { status: 403 }
+      { status: 401 }
     );
   }
 
@@ -127,13 +127,9 @@ export async function POST(request: NextRequest) {
 
   // ── Key check: real advocates get 503 if key is missing ───────────────────
   if (!isSarvamConfigured()) {
+    await logServerError('voice/transcribe', new Error('SARVAM_API_KEY not configured'), { userId: user.id });
     return NextResponse.json(
-      {
-        error:
-          'Voice transcription unavailable: SARVAM_API_KEY is not configured on this server. ' +
-          'Add SARVAM_API_KEY to the server environment variables (Vercel Project Settings → Environment Variables).',
-        code: 'not_configured',
-      },
+      { error: 'Voice transcription is temporarily unavailable. Please contact support.', code: 'not_configured' },
       { status: 503 }
     );
   }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getRequestUser } from '@/lib/auth/requestUser';
-import { isAnonymousUser, isRealAppUser } from '@/lib/supabase/auth';
+import { requireWorkspaceUser } from '@/lib/auth/requestUser';
+import { isAnonymousUser } from '@/lib/supabase/auth';
 import { createServiceClient } from '@/lib/supabase/service';
 import { extractDocumentText, isSarvamConfigured, DOC_AI_MAX_PAGES } from '@/lib/sarvam';
 import { logServerError } from '@/lib/log/serverLog';
@@ -35,8 +35,8 @@ const MSG_OCR: Record<string, string> = {
  */
 
 export async function POST(request: NextRequest) {
-  // ── Auth gate ─────────────────────────────────────────────────────────────
-  const user = await getRequestUser(request);
+  // ── Auth gate (enforces one-active-device rule for lawyers) ──────────────
+  const user = await requireWorkspaceUser(request);
   if (!user) {
     return NextResponse.json(
       { error: 'Authentication required. Please sign in.' },
@@ -45,14 +45,6 @@ export async function POST(request: NextRequest) {
   }
 
   const isDemo = isAnonymousUser(user);
-  const isReal = isRealAppUser(user);
-
-  if (!isDemo && !isReal) {
-    return NextResponse.json(
-      { error: 'Enhanced Document AI is limited to approved advocates.' },
-      { status: 403 }
-    );
-  }
 
   const service = createServiceClient() as any;
 
@@ -318,8 +310,9 @@ async function handleJsonOcr(
     );
   }
 
+  // Decode base64 to Blob before reserving credits so errors here don't leave a dangling reserve
+  let blob: Blob;
   try {
-    // Decode base64 to Blob for Sarvam DocAI
     let mime = 'image/jpeg';
     let b64 = imageBase64;
     if (imageBase64.startsWith('data:')) {
@@ -328,23 +321,27 @@ async function handleJsonOcr(
       if (match) mime = match[1];
       b64 = raw;
     }
-
     const binaryStr = atob(b64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
-    const blob = new Blob([bytes], { type: mime });
+    blob = new Blob([bytes], { type: mime });
+  } catch (decodeErr) {
+    await logServerError('ocr/enhanced/json', decodeErr, { userId });
+    return NextResponse.json({ error: 'Invalid image data. Please try again.', code: 'validation_error' }, { status: 400 });
+  }
 
-    // 3. Metering: images are always 1 page; PDFs scanned for page count
-    const pageCount = await countPdfPages(blob, DOC_AI_MAX_PAGES);
-    const ownerId = await resolveOwner(service, userId);
-    const est = estimateOcr(pageCount);
-    const meter = await reserve(service, ownerId, userId, 'ocr', est.paise);
-    if (!meter.ok) {
-      return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
-    }
+  // 3. Metering: reserve credits before calling Sarvam (mirrors multipart handler)
+  const pageCount = await countPdfPages(blob, DOC_AI_MAX_PAGES);
+  const ownerId = await resolveOwner(service, userId);
+  const est = estimateOcr(pageCount);
+  const meter = await reserve(service, ownerId, userId, 'ocr', est.paise);
+  if (!meter.ok) {
+    return NextResponse.json({ error: meter.message, code: meter.code }, { status: meter.httpStatus });
+  }
 
+  try {
     const result = await extractDocumentText({
       fileBlob: blob,
       outputFormat: 'md',
@@ -399,6 +396,7 @@ async function handleJsonOcr(
       warning: '✦ Sarvam Document AI Draft — review against original document before use.',
     });
   } catch (error) {
+    await release(service, meter.reserveId);
     await logServerError('ocr/enhanced/json', error, { userId });
     return NextResponse.json(
       { error: 'Document scan failed. Please try again.', code: 'service_error', retryable: true },
