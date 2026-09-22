@@ -7,6 +7,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
 import { resolveOwner, estimateText, reserve, settle, release } from '@/lib/ai/metering';
 
+// Same reasoning as ocr/enhanced/route.ts: never rely on the platform's default
+// function timeout for a call that reaches an external AI service.
+export const maxDuration = 30;
+
 /**
  * POST /api/translate  -  Telugu / Hindi / English translation (Sarvam AI).
  *

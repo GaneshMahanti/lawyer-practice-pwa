@@ -12,6 +12,9 @@ import {
   loadMatters,
 } from '@/lib/data/repository';
 import { extractSelectablePdfText } from '@/lib/ocr/localOcr';
+import { fetchJson } from '@/lib/http/fetchJson';
+import { compressImageIfNeeded } from '@/lib/http/compressImage';
+import { MAX_UPLOAD_BYTES, formatBytes, isOverUploadLimit } from '@/lib/http/uploadLimits';
 import type { DocumentRecord, Client, Matter } from '@/lib/types/database';
 
 function DocumentTranslationContent() {
@@ -72,14 +75,38 @@ function DocumentTranslationContent() {
   // File upload — for machine-readable PDFs extract text locally;
   // for scanned images/PDFs prompt the lawyer to use AI Extract (Sarvam Document AI).
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
+
+    setOcrNotice(null);
+    setEnhancedError(null);
+
+    // Phone camera photos are routinely 8-15 MB - well over Vercel's 4.5 MB request
+    // limit. Shrink images automatically rather than let the AI Extract upload fail.
+    let file = picked;
+    if (isOverUploadLimit(file.size) && file.type.startsWith('image/')) {
+      setOcrNotice('Compressing photo…');
+      file = await compressImageIfNeeded(file, MAX_UPLOAD_BYTES);
+    }
+
+    if (isOverUploadLimit(file.size)) {
+      setFileName(null);
+      setUploadedFile(null);
+      setUploadedImagePreview(null);
+      const kind = file.type === 'application/pdf' ? 'PDF' : 'file';
+      setOcrNotice(
+        `This ${kind} is ${formatBytes(file.size)}, which is too large to scan (limit ${formatBytes(MAX_UPLOAD_BYTES)}). ` +
+        (file.type === 'application/pdf'
+          ? 'Please export a smaller/lower-resolution PDF, or scan fewer pages at once.'
+          : 'Please use a smaller image.'),
+      );
+      e.target.value = '';
+      return;
+    }
 
     setFileName(file.name);
     setUploadedFile(file);
     setOcrLoading(true);
-    setOcrNotice(null);
-    setEnhancedError(null);
     setTeluguText('');
 
     // If image, create preview data URL
@@ -129,8 +156,6 @@ function DocumentTranslationContent() {
     setEnhancedError(null);
 
     try {
-      let res: Response;
-
       if (uploadedFile) {
         // Primary path: send file directly as multipart — Sarvam DocAI handles PDF + images
         const form = new FormData();
@@ -139,28 +164,40 @@ function DocumentTranslationContent() {
         form.append('language', 'te-IN');
         if (selectedMatterId) form.append('matterId', selectedMatterId);
 
-        res = await fetch('/api/ocr/enhanced', { method: 'POST', body: form });
+        const result = await fetchJson<{ text?: string; provider?: string; warning?: string }>(
+          '/api/ocr/enhanced',
+          { method: 'POST', body: form, timeoutMs: 65_000 },
+        );
+        if (!result.ok) throw new Error(result.error || 'AI document extraction failed.');
+
+        if (result.data?.text) {
+          setTeluguText(result.data.text);
+          setOcrMethod(result.data.provider === 'demo_docai' ? 'demo_docai' : 'sarvam_docai');
+          setOcrNotice(result.data.warning || '✦ Sarvam Document AI Draft — review against original document before use.');
+        }
       } else {
         // Fallback: JSON + base64 (images only, for backward compat)
-        res = await fetch('/api/ocr/enhanced', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            consent: true,
-            matterId: selectedMatterId || null,
-            imageBase64: uploadedImagePreview,
-            language: 'te-IN',
-          }),
-        });
-      }
+        const result = await fetchJson<{ text?: string; provider?: string; warning?: string }>(
+          '/api/ocr/enhanced',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              consent: true,
+              matterId: selectedMatterId || null,
+              imageBase64: uploadedImagePreview,
+              language: 'te-IN',
+            }),
+            timeoutMs: 65_000,
+          },
+        );
+        if (!result.ok) throw new Error(result.error || 'AI document extraction failed.');
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI document extraction failed.');
-
-      if (data.text) {
-        setTeluguText(data.text);
-        setOcrMethod(data.provider === 'demo_docai' ? 'demo_docai' : 'sarvam_docai');
-        setOcrNotice(data.warning || '✦ Sarvam Document AI Draft — review against original document before use.');
+        if (result.data?.text) {
+          setTeluguText(result.data.text);
+          setOcrMethod(result.data.provider === 'demo_docai' ? 'demo_docai' : 'sarvam_docai');
+          setOcrNotice(result.data.warning || '✦ Sarvam Document AI Draft — review against original document before use.');
+        }
       }
     } catch (err) {
       console.error('[documents] Enhanced OCR error:', err);
@@ -183,29 +220,22 @@ function DocumentTranslationContent() {
     if (!teluguText.trim()) return;
     setTranslating(true);
 
-    try {
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: teluguText.trim(),
-          source_lang: 'te',
-          target_lang: 'en',
-        }),
-      });
+    const res = await fetchJson<{ translated_text?: string; error?: string }>('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: teluguText.trim(),
+        source_lang: 'te',
+        target_lang: 'en',
+      }),
+    });
 
-      const data = await res.json();
-      if (res.ok && data.translated_text) {
-        setEnglishText(data.translated_text);
-      } else {
-        setEnglishText(data.error || 'Translation failed. Please try again.');
-      }
-    } catch (err) {
-      console.error('[documents] Translation error:', err);
-      setEnglishText('Translation service unavailable. Please check your connection.');
-    } finally {
-      setTranslating(false);
+    if (res.ok && res.data?.translated_text) {
+      setEnglishText(res.data.translated_text);
+    } else {
+      setEnglishText(res.error || 'Translation failed. Please try again.');
     }
+    setTranslating(false);
   };
 
   // Save Translated Memo

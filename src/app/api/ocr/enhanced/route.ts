@@ -7,6 +7,12 @@ import { extractDocumentText, isSarvamConfigured, DOC_AI_MAX_PAGES } from '@/lib
 import { logServerError } from '@/lib/log/serverLog';
 import { resolveOwner, estimateOcr, countPdfPages, reserve, settle, release } from '@/lib/ai/metering';
 
+// Document AI can poll for up to 60s (see DOC_AI_POLL_TIMEOUT_MS). Vercel's default
+// function timeout (10s on Hobby without Fluid Compute) would otherwise kill this
+// route mid-request and return its own error page instead of a JSON response —
+// exactly the kind of failure that looks like "it worked yesterday, not today".
+export const maxDuration = 60;
+
 const MSG_OCR: Record<string, string> = {
   rate_limited:     'Too many requests. Please wait a moment and try again.',
   quota_exhausted:  'Document scanning credits exhausted. Please contact support.',

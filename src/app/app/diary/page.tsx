@@ -13,6 +13,9 @@ import {
 } from '@/lib/data/repository';
 import { extractSelectablePdfText } from '@/lib/ocr/localOcr';
 import { encodeToWav } from '@/lib/audio/wavEncoder';
+import { fetchJson } from '@/lib/http/fetchJson';
+import { compressImageIfNeeded } from '@/lib/http/compressImage';
+import { MAX_UPLOAD_BYTES, formatBytes, isOverUploadLimit } from '@/lib/http/uploadLimits';
 import type { DiaryEntry, Client, Matter } from '@/lib/types/database';
 import {
   BookOpen,
@@ -252,19 +255,32 @@ function UnifiedNotesContent() {
         }
       }
 
+      // A recording this long produces a WAV over Vercel's 4.5 MB upload limit
+      // (16 kHz mono 16-bit ≈ 1.9 MB/min), so it would fail with an unhelpful error
+      // after transcoding. Catch it here, before the request is ever sent.
+      if (isOverUploadLimit(audioToSend.size)) {
+        setSttError(
+          `This recording is too long to transcribe in one go (${formatBytes(audioToSend.size)}). ` +
+          'Please record in shorter clips of about 2 minutes or less.',
+        );
+        return;
+      }
+
       const form = new FormData();
       form.append('file', audioToSend, 'recording.wav');
       form.append('language_code', sttLang);
       form.append('mode', 'codemix');
 
-      const res = await fetch('/api/voice/transcribe', { method: 'POST', body: form });
-      const data = await res.json();
+      const res = await fetchJson<{ transcript?: string; error?: string; code?: string }>(
+        '/api/voice/transcribe',
+        { method: 'POST', body: form, timeoutMs: 55_000 },
+      );
 
-      if (res.ok && data.transcript) {
-        setSttDraft(data.transcript);
+      if (res.ok && res.data?.transcript) {
+        setSttDraft(res.data.transcript);
       } else {
-        const code = data.code ? ` [${data.code}]` : '';
-        setSttError((data.error || 'Transcription failed. Please try again.') + code);
+        const code = res.code ? ` [${res.code}]` : '';
+        setSttError((res.error || 'Transcription failed. Please try again.') + code);
       }
     } catch {
       setSttError('Could not reach the transcription service. Check your connection.');
@@ -353,28 +369,22 @@ function UnifiedNotesContent() {
     setTranslating(true);
     setTranslateResult('');
 
-    try {
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: translateInput.trim(),
-          source_lang: translateSourceLang,
-          target_lang: translateTargetLang,
-        }),
-      });
+    const res = await fetchJson<{ translated_text?: string; error?: string }>('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: translateInput.trim(),
+        source_lang: translateSourceLang,
+        target_lang: translateTargetLang,
+      }),
+    });
 
-      const data = await res.json();
-      if (res.ok && data.translated_text) {
-        setTranslateResult(data.translated_text);
-      } else {
-        setTranslateResult(data.error || 'Translation failed.');
-      }
-    } catch {
-      setTranslateResult('Translation service unavailable.');
-    } finally {
-      setTranslating(false);
+    if (res.ok && res.data?.translated_text) {
+      setTranslateResult(res.data.translated_text);
+    } else {
+      setTranslateResult(res.error || 'Translation failed.');
     }
+    setTranslating(false);
   };
 
   const appendTranslationToNote = () => {
@@ -405,10 +415,36 @@ function UnifiedNotesContent() {
     if (scanInputRef.current) scanInputRef.current.value = '';
   };
 
-  const handleScanPick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleScanPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    if (!picked) return;
     if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+    setScanWarning('');
+
+    // Phone camera photos are routinely 8-15 MB - well over Vercel's 4.5 MB request
+    // limit. Shrink images automatically rather than let the upload fail later.
+    let file = picked;
+    if (isOverUploadLimit(file.size) && file.type.startsWith('image/')) {
+      setScanWarning('Compressing photo…');
+      file = await compressImageIfNeeded(file, MAX_UPLOAD_BYTES);
+    }
+
+    if (isOverUploadLimit(file.size)) {
+      setScanFile(null);
+      setScanPreviewUrl(null);
+      setScanExtracted('');
+      setTranslateResult('');
+      const kind = file.type === 'application/pdf' ? 'PDF' : 'file';
+      setScanWarning(
+        `This ${kind} is ${formatBytes(file.size)}, which is too large to scan (limit ${formatBytes(MAX_UPLOAD_BYTES)}). ` +
+        (file.type === 'application/pdf'
+          ? 'Please export a smaller/lower-resolution PDF, or scan fewer pages at once.'
+          : 'Please use a smaller image.'),
+      );
+      if (scanInputRef.current) scanInputRef.current.value = '';
+      return;
+    }
+
     setScanFile(file);
     setScanPreviewUrl(file.type.startsWith('image/') ? URL.createObjectURL(file) : null);
     setScanExtracted('');
@@ -431,41 +467,31 @@ function UnifiedNotesContent() {
     file: File,
     sourceLang: string,
   ): Promise<{ text: string; warning?: string } | { text: ''; error: string; retryable?: boolean }> => {
-    try {
-      const form = new FormData();
-      form.append('consent', 'true');
-      form.append('file', file, file.name);
-      // Pass the selected source language so Sarvam Document AI knows the script
-      if (sourceLang) form.append('language', sourceLang);
-      if (selectedMatterId) form.append('matterId', selectedMatterId);
+    const form = new FormData();
+    form.append('consent', 'true');
+    form.append('file', file, file.name);
+    // Pass the selected source language so Sarvam Document AI knows the script
+    if (sourceLang) form.append('language', sourceLang);
+    if (selectedMatterId) form.append('matterId', selectedMatterId);
 
-      const res = await fetch('/api/ocr/enhanced', {
-        method: 'POST',
-        body: form,
-      });
+    const res = await fetchJson<{ text?: string; warning?: string; code?: string; retryable?: boolean }>(
+      '/api/ocr/enhanced',
+      { method: 'POST', body: form, timeoutMs: 65_000 },
+    );
 
-      const data = await res.json();
-      if (!res.ok || !data.text) {
-        // Include error code in message for debugging visibility (safe — no secrets exposed)
-        const code = data.code ? ` [${data.code}]` : '';
-        return {
-          text: '',
-          error: (data.error || 'Sarvam Document AI extraction failed. Please try again.') + code,
-          retryable: data.retryable ?? true,
-        };
-      }
-
-      return {
-        text: String(data.text).trim(),
-        warning: data.warning || '✦ Sarvam Document AI Draft — review against original document before use.',
-      };
-    } catch (err) {
+    if (!res.ok || !res.data?.text) {
+      const code = res.code ? ` [${res.code}]` : '';
       return {
         text: '',
-        error: err instanceof Error ? err.message : 'Document AI connection failed. Check your network.',
-        retryable: true,
+        error: (res.error || 'Sarvam Document AI extraction failed. Please try again.') + code,
+        retryable: res.data?.retryable ?? true,
       };
     }
+
+    return {
+      text: String(res.data.text).trim(),
+      warning: res.data.warning || '✦ Sarvam Document AI Draft — review against original document before use.',
+    };
   };
 
   const handleScanAndTranslate = async () => {
@@ -506,7 +532,7 @@ function UnifiedNotesContent() {
 
       // 3. Auto-translate the extracted text via chunked Sarvam translate
       setTranslating(true);
-      const res = await fetch('/api/translate', {
+      const res = await fetchJson<{ translated_text?: string; error?: string }>('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -515,11 +541,10 @@ function UnifiedNotesContent() {
           target_lang: translateTargetLang,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.translated_text) {
-        setTranslateResult(data.translated_text);
+      if (res.ok && res.data?.translated_text) {
+        setTranslateResult(res.data.translated_text);
       } else {
-        setTranslateResult(data.error || 'Translation failed.');
+        setTranslateResult(res.error || 'Translation failed.');
       }
     } catch (err) {
       setScanWarning(err instanceof Error ? err.message : 'Scan processing failed. Please try again.');
@@ -533,27 +558,21 @@ function UnifiedNotesContent() {
     if (!scanExtracted.trim()) return;
     setTranslating(true);
     setTranslateResult('');
-    try {
-      const res = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: scanExtracted.trim(),
-          source_lang: translateSourceLang,
-          target_lang: translateTargetLang,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.translated_text) {
-        setTranslateResult(data.translated_text);
-      } else {
-        setTranslateResult(data.error || 'Translation failed.');
-      }
-    } catch {
-      setTranslateResult('Translation service unavailable.');
-    } finally {
-      setTranslating(false);
+    const res = await fetchJson<{ translated_text?: string; error?: string }>('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: scanExtracted.trim(),
+        source_lang: translateSourceLang,
+        target_lang: translateTargetLang,
+      }),
+    });
+    if (res.ok && res.data?.translated_text) {
+      setTranslateResult(res.data.translated_text);
+    } else {
+      setTranslateResult(res.error || 'Translation failed.');
     }
+    setTranslating(false);
   };
 
   // ── Audio Playback ──────────────────────────────────────────────────────────

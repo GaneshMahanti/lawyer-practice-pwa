@@ -37,6 +37,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
 import { resolveOwner, estimateText, reserve, settle, release } from '@/lib/ai/metering';
 
+// Same reasoning as ocr/enhanced/route.ts: never rely on the platform's default
+// function timeout for a call that reaches an external AI service.
+export const maxDuration = 30;
+
 const MSG_SIGN_IN = 'Please sign in to use script conversion.';
 const MSG_UNAVAILABLE = 'Script conversion is unavailable right now. Please try again later.';
 const MSG_BUSY = 'Too many requests. Please wait a moment and try again.';

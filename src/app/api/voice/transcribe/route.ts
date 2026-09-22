@@ -29,6 +29,10 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { logServerError } from '@/lib/log/serverLog';
 import { resolveOwner, estimateStt, reserve, settle, release } from '@/lib/ai/metering';
 
+// Sarvam STT can take close to the 40s client timeout. See ocr/enhanced/route.ts
+// for why this must be set explicitly rather than relying on the platform default.
+export const maxDuration = 60;
+
 const MSG_STT: Record<string, string> = {
   rate_limited:      'Too many requests. Please wait a moment and try again.',
   quota_exhausted:   'Transcription credits exhausted. Please contact support.',
