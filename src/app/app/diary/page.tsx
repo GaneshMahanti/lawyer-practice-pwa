@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, Suspense } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLanguage } from '@/lib/i18n/context';
 import {
@@ -86,6 +86,7 @@ function UnifiedNotesContent() {
   const [scanExtracted, setScanExtracted] = useState('');
   const [scanWarning, setScanWarning] = useState('');
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Edit Note State (Written notes & Voice transcripts)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -127,6 +128,18 @@ function UnifiedNotesContent() {
     window.addEventListener('vakildesk-notes-update', handleUpdate);
     return () => window.removeEventListener('vakildesk-notes-update', handleUpdate);
   }, []);
+
+  // Keep the note canvas exactly as tall as its content needs (min 380px), no matter
+  // whether the text changed by typing, an inserted transcript/translation, or a
+  // save/discard reset. A single effect keyed on the content is the one source of
+  // truth for height — the native resize handle is disabled below so nothing else
+  // can set a height this effect doesn't know about and can't correct.
+  useLayoutEffect(() => {
+    const el = bodyTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.max(el.scrollHeight, 380) + 'px';
+  }, [typedBody]);
 
   const clientMatters = selectedClientId
     ? matters.filter((m) => m.client_id === selectedClientId)
@@ -697,7 +710,7 @@ function UnifiedNotesContent() {
             </button>
 
             {/* Big Prominent Date Header */}
-            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: 0 }}>
               <div style={{
                 fontSize: '0.76rem',
                 fontWeight: 700,
@@ -706,14 +719,12 @@ function UnifiedNotesContent() {
               }}>
                 {formattedDayOfWeek}
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 8, marginTop: 2 }}>
-                <span style={{ fontSize: '1.8rem', fontWeight: 800, fontFamily: 'serif', lineHeight: 1, color: 'var(--text-primary)' }}>
-                  {formattedDayNum}
-                </span>
-                <span style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-secondary)' }}>
-                  {formattedMonthYear}
-                </span>
-              </div>
+              <span style={{ fontSize: '1.8rem', fontWeight: 800, fontFamily: 'serif', lineHeight: 1.15, color: 'var(--text-primary)', marginTop: 2 }}>
+                {formattedDayNum}
+              </span>
+              <span style={{ fontSize: '1rem', fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text-secondary)' }}>
+                {formattedMonthYear}
+              </span>
               {!isToday && (
                 <button
                   type="button"
@@ -1143,24 +1154,19 @@ function UnifiedNotesContent() {
               marginBottom: 12,
             }}>
               <textarea
+                ref={bodyTextareaRef}
                 className="input-field"
                 rows={14}
                 placeholder="Write today's proceedings, case observations, ideas, or paste anything you want to save. Tap the mic to dictate."
                 value={typedBody}
-                onChange={(e) => {
-                  setTypedBody(e.target.value);
-                  // Auto-grow the canvas as you type (never shrinks below its base height)
-                  const el = e.target;
-                  el.style.height = 'auto';
-                  el.style.height = Math.max(el.scrollHeight, 380) + 'px';
-                }}
+                onChange={(e) => setTypedBody(e.target.value)}
                 style={{
                   lineHeight: '28px',
                   fontSize: '0.95rem',
                   background: 'transparent',
                   paddingRight: 48,
                   minHeight: 380,
-                  resize: 'vertical',
+                  resize: 'none',
                 }}
               />
 
